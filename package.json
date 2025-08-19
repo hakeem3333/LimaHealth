@@ -5,9 +5,10 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "ts-node src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js"
+    "dev": "ts-node src/server.ts",
+    "merge-schema": "ts-node merge-schema.ts",
+    "build": "npm run merge-schema && tsc",
+    "start": "node dist/server.js"
   },
   "keywords": [],
   "author": "",
