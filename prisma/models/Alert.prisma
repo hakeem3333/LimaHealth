@@ -1,0 +1,13 @@
+model Alert {
+  id          String   @id @default(uuid())
+  studentId   String
+  counselorId String
+  timestamp   DateTime @default(now())
+  alertType   String
+  message     String
+  isResolved  Boolean  @default(false)
+  notes       String?
+  createdAt   DateTime @default(now())
+  student     User     @relation("AlertsAsStudent", fields: [studentId], references: [id])
+  counselor   User     @relation("AlertsAsCounselor", fields: [counselorId], references: [id])
+}
