@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "ts-node src/server.ts",
-    "merge-schema": "ts-node merge-schema.ts",
+    "merge-schema": "ts-node --esm merge-schema.ts",
     "build": "npm run merge-schema && tsc",
     "start": "node dist/server.js"
   },
