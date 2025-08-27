@@ -5,12 +5,12 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "ts-node src/server.ts",
-    "merge-schema": "tsx merge-schema.ts",
-    "postmerge-schema": "npx prisma generate",
-    "build": "npm run merge-schema && tsc",
-    "start": "node dist/server.js"
-  },
+  "dev": "tsx src/server.ts",
+  "merge-schema": "tsx merge-schema.ts",
+  "postmerge-schema": "npx prisma generate",
+  "build": "npm run merge-schema && tsc",
+  "start": "node dist/server.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
