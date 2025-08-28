@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createAlert,
-  getAlerts,
+  getAllAlerts,
   getAlertById,
   updateAlert,
   deleteAlert,
@@ -55,7 +55,7 @@ router.post("/", createAlert);
  * 200:
  * description: A list of alerts.
  */
-router.get("/", getAlerts);
+router.get("/", getAllAlerts);
 
 /**
  * @swagger

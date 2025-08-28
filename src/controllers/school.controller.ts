@@ -1,6 +1,6 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { School } from "../types/models";
+import type { School } from "../types/models";
 
 /**
  * Retrieves all schools from the database.

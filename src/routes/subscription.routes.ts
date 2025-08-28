@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createSubscription,
-  getSubscriptions,
+  getAllSubscriptions,
   getSubscriptionById,
   updateSubscription,
   deleteSubscription,
@@ -53,7 +53,7 @@ router.post("/", createSubscription);
  * 200:
  * description: A list of subscriptions.
  */
-router.get("/", getSubscriptions);
+router.get("/", getAllSubscriptions);
 
 /**
  * @swagger

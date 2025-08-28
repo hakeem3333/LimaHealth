@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createMoodLog,
-  getMoodLogs,
+  getAllMoodLogs,
   getMoodLogById,
   updateMoodLog,
   deleteMoodLog,
@@ -53,7 +53,7 @@ router.post("/", createMoodLog);
  * 200:
  * description: A list of mood logs.
  */
-router.get("/", getMoodLogs);
+router.get("/", getAllMoodLogs);
 
 /**
  * @swagger

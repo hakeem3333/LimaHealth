@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 /**
  * Retrieves all schools from the database.
  * @param req The Express request object.

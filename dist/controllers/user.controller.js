@@ -1,6 +1,4 @@
-import { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { User } from "../types/models";
 import bcrypt from "bcrypt";
 const saltRounds = 10;
 /**

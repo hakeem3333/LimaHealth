@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createUser,
-  getUsers,
+  getAllUsers,
   getUserById,
   updateUser,
   deleteUser,
@@ -55,7 +55,7 @@ router.post("/", createUser);
  * 200:
  * description: A list of users.
  */
-router.get("/", getUsers);
+router.get("/", getAllUsers);
 
 /**
  * @swagger

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createBiometricLog,
-  getBiometricLogs,
+  getAllBiometricLogs,
   getBiometricLogById,
   updateBiometricLog,
   deleteBiometricLog,
@@ -57,7 +57,7 @@ router.post("/", createBiometricLog);
  * 200:
  * description: A list of biometric logs.
  */
-router.get("/", getBiometricLogs);
+router.get("/", getAllBiometricLogs);
 
 /**
  * @swagger

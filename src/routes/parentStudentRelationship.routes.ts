@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createParentStudentRelationship,
-  getParentStudentRelationships,
+  getAllParentStudentRelationships,
   getParentStudentRelationshipById,
   updateParentStudentRelationship,
   deleteParentStudentRelationship,
@@ -51,7 +51,7 @@ router.post("/", createParentStudentRelationship);
  * 200:
  * description: A list of parent-student relationships.
  */
-router.get("/", getParentStudentRelationships);
+router.get("/", getAllParentStudentRelationships);
 
 /**
  * @swagger

@@ -1,6 +1,4 @@
-import { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { BiometricLog } from "../types/models";
 /**
  * Retrieves all biometric logs from the database.
  * @param req The Express request object.

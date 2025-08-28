@@ -1,6 +1,6 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { Alert } from "../types/models";
+import type { Alert } from "../types/models";
 
 /**
  * Retrieves all alerts from the database.

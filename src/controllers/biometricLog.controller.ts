@@ -1,6 +1,6 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { BiometricLog } from "../types/models";
+import type { BiometricLog } from "../types/models";
 
 /**
  * Retrieves all biometric logs from the database.

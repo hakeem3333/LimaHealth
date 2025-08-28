@@ -1,6 +1,6 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { Subscription } from "../types/models";
+import type { Subscription } from "../types/models";
 
 /**
  * Retrieves all subscriptions from the database.

@@ -1,118 +1,110 @@
-import { Request, Response } from 'express';
-import prisma from '../services/prisma.service';
-import { BiometricLog } from '../types/models';
+import prisma from "../services/prisma.service";
 /**
- * Retrieves all biometric logs from the database.
+ * Retrieves all mood logs from the database.
  * @param req The Express request object.
  * @param res The Express response object.
  */
-export const getAllBiometricLogs = async (req, res) => {
+export const getAllMoodLogs = async (req, res) => {
     try {
-        const biometricLogs = await prisma.biometricLog.findMany({
+        const moodLogs = await prisma.moodLog.findMany({
             include: {
                 user: true,
             },
         });
-        res.status(200).json(biometricLogs);
+        res.status(200).json(moodLogs);
     }
     catch (error) {
-        console.error('Error fetching biometric logs:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error("Error fetching mood logs:", error);
+        res.status(500).json({ error: "Internal server error" });
     }
 };
 /**
- * Retrieves a single biometric log by its ID.
+ * Retrieves a single mood log by its ID.
  * @param req The Express request object.
  * @param res The Express response object.
  */
-export const getBiometricLogById = async (req, res) => {
+export const getMoodLogById = async (req, res) => {
     const { id } = req.params;
     try {
-        const biometricLog = await prisma.biometricLog.findUnique({
+        const moodLog = await prisma.moodLog.findUnique({
             where: { id },
             include: {
                 user: true,
             },
         });
-        if (!biometricLog) {
-            res.status(404).json({ message: 'Biometric log not found' });
+        if (!moodLog) {
+            res.status(404).json({ message: "Mood log not found" });
             return;
         }
-        res.status(200).json(biometricLog);
+        res.status(200).json(moodLog);
     }
     catch (error) {
-        console.error('Error fetching biometric log by ID:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error("Error fetching mood log by ID:", error);
+        res.status(500).json({ error: "Internal server error" });
     }
 };
 /**
- * Creates a new biometric log.
- * @param req The Express request object with the new biometric log data.
+ * Creates a new mood log.
+ * @param req The Express request object with the new mood log data.
  * @param res The Express response object.
  */
-export const createBiometricLog = async (req, res) => {
-    const { userId, heartRate, skinTemp, gsr, movement, stressLevelScore } = req.body;
+export const createMoodLog = async (req, res) => {
+    const { userId, moodEmoji, notes } = req.body;
     try {
-        const newBiometricLog = await prisma.biometricLog.create({
+        const newMoodLog = await prisma.moodLog.create({
             data: {
                 userId,
-                heartRate,
-                skinTemp,
-                gsr,
-                movement,
-                stressLevelScore,
+                moodEmoji,
+                notes,
             },
         });
-        res.status(201).json(newBiometricLog);
+        res.status(201).json(newMoodLog);
     }
     catch (error) {
-        console.error('Error creating biometric log:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error("Error creating mood log:", error);
+        res.status(500).json({ error: "Internal server error" });
     }
 };
 /**
- * Updates an existing biometric log by its ID.
- * @param req The Express request object with the updated biometric log data.
+ * Updates an existing mood log by its ID.
+ * @param req The Express request object with the updated mood log data.
  * @param res The Express response object.
  */
-export const updateBiometricLog = async (req, res) => {
+export const updateMoodLog = async (req, res) => {
     const { id } = req.params;
-    const { userId, heartRate, skinTemp, gsr, movement, stressLevelScore } = req.body;
+    const { userId, moodEmoji, notes } = req.body;
     try {
-        const updatedBiometricLog = await prisma.biometricLog.update({
+        const updatedMoodLog = await prisma.moodLog.update({
             where: { id },
             data: {
                 userId,
-                heartRate,
-                skinTemp,
-                gsr,
-                movement,
-                stressLevelScore,
+                moodEmoji,
+                notes,
             },
         });
-        res.status(200).json(updatedBiometricLog);
+        res.status(200).json(updatedMoodLog);
     }
     catch (error) {
-        console.error('Error updating biometric log:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error("Error updating mood log:", error);
+        res.status(500).json({ error: "Internal server error" });
     }
 };
 /**
- * Deletes a biometric log by its ID.
- * @param req The Express request object with the biometric log ID.
+ * Deletes a mood log by its ID.
+ * @param req The Express request object with the mood log ID.
  * @param res The Express response object.
  */
-export const deleteBiometricLog = async (req, res) => {
+export const deleteMoodLog = async (req, res) => {
     const { id } = req.params;
     try {
-        await prisma.biometricLog.delete({
+        await prisma.moodLog.delete({
             where: { id },
         });
         res.status(204).send(); // 204 No Content for a successful delete
     }
     catch (error) {
-        console.error('Error deleting biometric log:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error("Error deleting mood log:", error);
+        res.status(500).json({ error: "Internal server error" });
     }
 };
 //# sourceMappingURL=moodLog.controller.js.map

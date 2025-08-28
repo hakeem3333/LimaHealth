@@ -1,4 +1,5 @@
-import express, { Application, Request, Response } from "express";
+import express from "express";
+import type { Application, Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import routes from "./routes"; // Import the main routes file

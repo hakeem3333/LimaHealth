@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createRole,
-  getRoles,
+  getAllRoles,
   getRoleById,
   updateRole,
   deleteRole,
@@ -51,7 +51,7 @@ router.post("/", createRole);
  * 200:
  * description: A list of roles.
  */
-router.get("/", getRoles);
+router.get("/", getAllRoles);
 
 /**
  * @swagger

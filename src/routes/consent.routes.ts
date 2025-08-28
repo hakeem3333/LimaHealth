@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createConsent,
-  getConsents,
+  getAllConsents,
   getConsentById,
   updateConsent,
   deleteConsent,
@@ -53,7 +53,7 @@ router.post("/", createConsent);
  * 200:
  * description: A list of consents.
  */
-router.get("/", getConsents);
+router.get("/", getAllConsents);
 
 /**
  * @swagger

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   createSchool,
-  getSchools,
+  getAllSchools,
   getSchoolById,
   updateSchool,
   deleteSchool,
@@ -55,7 +55,7 @@ router.post("/", createSchool);
  * 200:
  * description: A list of schools.
  */
-router.get("/", getSchools);
+router.get("/", getAllSchools);
 
 /**
  * @swagger

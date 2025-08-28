@@ -1,6 +1,6 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { ParentStudentRelationship } from "../types/models";
+import type { ParentStudentRelationship } from "../types/models";
 
 /**
  * Retrieves all parent-student relationships from the database.

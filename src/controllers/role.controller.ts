@@ -1,6 +1,6 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { Role } from "../types/models";
+import type { Role } from "../types/models";
 
 /**
  * Retrieves all roles from the database.

@@ -1,32 +1,32 @@
-import { Request, Response } from 'express';
+import type { Request, Response } from "express";
 /**
- * Retrieves all biometric logs from the database.
+ * Retrieves all mood logs from the database.
  * @param req The Express request object.
  * @param res The Express response object.
  */
-export declare const getAllBiometricLogs: (req: Request, res: Response) => Promise<void>;
+export declare const getAllMoodLogs: (req: Request, res: Response) => Promise<void>;
 /**
- * Retrieves a single biometric log by its ID.
+ * Retrieves a single mood log by its ID.
  * @param req The Express request object.
  * @param res The Express response object.
  */
-export declare const getBiometricLogById: (req: Request, res: Response) => Promise<void>;
+export declare const getMoodLogById: (req: Request, res: Response) => Promise<void>;
 /**
- * Creates a new biometric log.
- * @param req The Express request object with the new biometric log data.
+ * Creates a new mood log.
+ * @param req The Express request object with the new mood log data.
  * @param res The Express response object.
  */
-export declare const createBiometricLog: (req: Request, res: Response) => Promise<void>;
+export declare const createMoodLog: (req: Request, res: Response) => Promise<void>;
 /**
- * Updates an existing biometric log by its ID.
- * @param req The Express request object with the updated biometric log data.
+ * Updates an existing mood log by its ID.
+ * @param req The Express request object with the updated mood log data.
  * @param res The Express response object.
  */
-export declare const updateBiometricLog: (req: Request, res: Response) => Promise<void>;
+export declare const updateMoodLog: (req: Request, res: Response) => Promise<void>;
 /**
- * Deletes a biometric log by its ID.
- * @param req The Express request object with the biometric log ID.
+ * Deletes a mood log by its ID.
+ * @param req The Express request object with the mood log ID.
  * @param res The Express response object.
  */
-export declare const deleteBiometricLog: (req: Request, res: Response) => Promise<void>;
+export declare const deleteMoodLog: (req: Request, res: Response) => Promise<void>;
 //# sourceMappingURL=moodLog.controller.d.ts.map
