@@ -8,7 +8,7 @@ import moodLogRoutes from "./moodLog.routes";
 import alertRoutes from "./alert.routes";
 import parentStudentRelationshipRoutes from "./parentStudentRelationship.routes";
 import consentRoutes from "./consent.routes";
-// import fitbitRoutes from "./fitbit.routes";
+import fitbitRoutes from './fitbit.routes'; //
 
 const router = Router();
 
@@ -22,6 +22,6 @@ router.use("/mood-logs", moodLogRoutes);
 router.use("/alerts", alertRoutes);
 router.use("/parent-student-relationships", parentStudentRelationshipRoutes);
 router.use("/consents", consentRoutes);
-// router.use("/fitbit", fitbitRoutes);
+router.use("/fitbit", fitbitRoutes);
 
 export default router;
