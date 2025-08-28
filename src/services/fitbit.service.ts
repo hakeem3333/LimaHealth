@@ -1,5 +1,6 @@
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import { prisma } from "../prisma";
 
 dotenv.config();
 
@@ -55,6 +56,40 @@ export const getAccessToken = async (code: string): Promise<any> => {
 };
 
 /**
+ * Refreshes an expired access token using the refresh token.
+ * @param refreshToken The refresh token for the user.
+ * @returns A promise that resolves to the new access and refresh tokens.
+ */
+export const refreshAccessToken = async (
+  refreshToken: string
+): Promise<any> => {
+  const basicAuth = Buffer.from(
+    `${FITBIT_CLIENT_ID}:${FITBIT_CLIENT_SECRET}`
+  ).toString("base64");
+
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${basicAuth}`,
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to refresh access token: ${response.statusText}, Details: ${errorText}`
+    );
+  }
+
+  return response.json();
+};
+
+/**
  * Fetches daily activity data (e.g., steps, distance) from the Fitbit API.
  * @param accessToken The access token for the user.
  * @returns A promise that resolves to the daily activity data.
@@ -76,4 +111,34 @@ export const getDailyActivity = async (accessToken: string): Promise<any> => {
   return response.json();
 };
 
-// You can add more functions here for other data types (e.g., heart rate, sleep).
+/**
+ * Saves biometric data from Fitbit to the database.
+ * @param userId The ID of the user.
+ * @param data The biometric data from the Fitbit API.
+ * @returns A promise that resolves to the new BiometricLog record.
+ */
+export const saveBiometricData = async (
+  userId: string,
+  data: any
+): Promise<any> => {
+  const { summary } = data;
+  const { steps, caloriesOut } = summary;
+  const { heartRate } = data["activities-heart-intraday"]?.dataset[0] || {};
+  const { sleep } = data["sleep"]; // Assuming sleep data is available
+
+  try {
+    const biometricLog = await prisma.biometricLog.create({
+      data: {
+        userId,
+        heartRate,
+        steps,
+        caloriesBurned: caloriesOut,
+        sleepDuration: sleep?.totalMinutesAsleep || 0,
+      },
+    });
+    return biometricLog;
+  } catch (error) {
+    console.error("Error saving biometric data to the database:", error);
+    throw new Error("Failed to save biometric data.");
+  }
+};
