@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import { prisma } from "../prisma";
+import { prisma } from "../prisma"; // Assuming this is correct
 
 dotenv.config();
 
@@ -17,6 +17,7 @@ const TOKEN_URL = "https://api.fitbit.com/oauth2/token";
  * @returns The Fitbit authorization URL.
  */
 export const getAuthorizationUrl = (): string => {
+  // Ensure all necessary scopes are included for all data types
   const scope = "activity%20heartrate%20sleep%20profile";
   return `${AUTH_URL}?response_type=code&client_id=${FITBIT_CLIENT_ID}&scope=${scope}&redirect_uri=${FITBIT_REDIRECT_URI}`;
 };
@@ -89,13 +90,16 @@ export const refreshAccessToken = async (
   return response.json();
 };
 
+// --- NEW/UPDATED BIOMETRIC DATA FETCHING FUNCTIONS ---
+
 /**
- * Fetches daily activity data (e.g., steps, distance) from the Fitbit API.
- * @param accessToken The access token for the user.
- * @returns A promise that resolves to the daily activity data.
+ * Helper to fetch data from a specific Fitbit API path.
  */
-export const getDailyActivity = async (accessToken: string): Promise<any> => {
-  const response = await fetch(`${BASE_URL}/activities/date/today.json`, {
+const fetchFitbitData = async (
+  accessToken: string,
+  path: string
+): Promise<any> => {
+  const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
@@ -104,7 +108,7 @@ export const getDailyActivity = async (accessToken: string): Promise<any> => {
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `Failed to fetch daily activity: ${response.statusText}, Details: ${errorText}`
+      `Failed to fetch data from ${path}: ${response.statusText}, Details: ${errorText}`
     );
   }
 
@@ -112,28 +116,85 @@ export const getDailyActivity = async (accessToken: string): Promise<any> => {
 };
 
 /**
+ * Fetches daily activity data (steps, distance, calories).
+ */
+const fetchActivityData = (accessToken: string) => {
+  // activities/date/today.json returns activities summary
+  return fetchFitbitData(accessToken, "/activities/date/today.json");
+};
+
+/**
+ * Fetches heart rate data for today.
+ * The endpoint path is corrected to be a separate call.
+ */
+const fetchHeartRateData = (accessToken: string) => {
+  // activities/heart/date/[date]/[detail-level].json
+  return fetchFitbitData(accessToken, "/activities/heart/date/today/1d.json");
+};
+
+/**
+ * Fetches sleep data for today.
+ * The endpoint path is corrected to be a separate call.
+ */
+const fetchSleepData = (accessToken: string) => {
+  // sleep/date/[date].json
+  return fetchFitbitData(accessToken, "/sleep/date/today.json");
+};
+
+/**
+ * Fetches ALL daily biometric data (Activity, Heart Rate, and Sleep) concurrently.
+ * @param accessToken The access token for the user.
+ * @returns A promise that resolves to an object containing all daily biometric data.
+ */
+export const getAllDailyBiometrics = async (
+  accessToken: string
+): Promise<any> => {
+  const [activityData, heartRateData, sleepData] = await Promise.all([
+    fetchActivityData(accessToken),
+    fetchHeartRateData(accessToken),
+    fetchSleepData(accessToken),
+  ]);
+
+  // Combine the results into a single object
+  return {
+    activity: activityData,
+    heart: heartRateData,
+    sleep: sleepData,
+  };
+};
+
+/**
  * Saves biometric data from Fitbit to the database.
  * @param userId The ID of the user.
- * @param data The biometric data from the Fitbit API.
+ * @param data The combined biometric data from getAllDailyBiometrics.
  * @returns A promise that resolves to the new BiometricLog record.
  */
 export const saveBiometricData = async (
   userId: string,
-  data: any
+  data: { activity: any; heart: any; sleep: any }
 ): Promise<any> => {
-  const { summary } = data;
-  const { steps, caloriesOut } = summary;
-  const { heartRate } = data["activities-heart-intraday"]?.dataset[0] || {};
-  const { sleep } = data["sleep"]; // Assuming sleep data is available
+  // Safely extract Activity data
+  const { summary } = data.activity;
+  const steps = summary?.steps || 0;
+  const caloriesOut = summary?.caloriesOut || 0;
+
+  // Safely extract Heart Rate data (getting the resting heart rate for the day)
+  const heartRate =
+    data.heart?.["activities-heart"]?.[0]?.value?.restingHeartRate || null;
+
+  // Safely extract Sleep data (getting total minutes asleep from the latest log)
+  const sleepLog = data.sleep?.sleep?.[0]; // Assumes the first sleep entry is the most relevant
+  const sleepDuration =
+    sleepLog?.timeInBed || sleepLog?.totalMinutesAsleep || 0;
 
   try {
     const biometricLog = await prisma.biometricLog.create({
       data: {
         userId,
-        heartRate,
-        steps,
-        caloriesBurned: caloriesOut,
-        sleepDuration: sleep?.totalMinutesAsleep || 0,
+        heartRate: heartRate, // Nullable number (int)
+        steps: steps, // Number (int)
+        caloriesBurned: caloriesOut, // Number (int)
+        sleepDuration: sleepDuration, // Number (int) (in minutes)
       },
     });
     return biometricLog;
