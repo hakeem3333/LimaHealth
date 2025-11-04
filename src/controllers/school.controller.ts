@@ -59,44 +59,44 @@ export const getSchoolById = async (
  * @param req The Express request object with the new school data.
  * @param res The Express response object.
  */
-export const createSchool = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const { name, contact_email } = req.body;
+// export const createSchool = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   const { name, contact_email } = req.body;
 
-  if (!name || !contact_email) {
-    res.status(400).json({ error: "name and contact_email are required" });
-    return;
-  }
+//   if (!name || !contact_email) {
+//     res.status(400).json({ error: "name and contact_email are required" });
+//     return;
+//   }
 
-  try {
-    // ✅ Check if school exists
-    const existingSchool = await prisma.school.findFirst({
-      where: {
-        OR: [{ name }, { contact_email }],
-      },
-    });
+//   try {
+//     // ✅ Check if school exists
+//     const existingSchool = await prisma.school.findFirst({
+//       where: {
+//         OR: [{ name }, { contact_email }],
+//       },
+//     });
 
-    if (existingSchool) {
-      res.status(409).json({ error: "School already exists" });
-      return;
-    }
+//     if (existingSchool) {
+//       res.status(409).json({ error: "School already exists" });
+//       return;
+//     }
 
-    // ✅ Create new school
-    const newSchool: School = await prisma.school.create({
-      data: {
-        name,
-        contact_email,
-      },
-    });
+//     // ✅ Create new school
+//     const newSchool: School = await prisma.school.create({
+//       data: {
+//         name,
+//         contact_email,
+//       },
+//     });
 
-    res.status(201).json(newSchool);
-  } catch (error) {
-    console.error("Error creating school:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
+//     res.status(201).json(newSchool);
+//   } catch (error) {
+//     console.error("Error creating school:", error);
+//     res.status(500).json({ error: "Internal server error" });
+//   }
+// };
 
 /**
  * Updates an existing school by its ID.

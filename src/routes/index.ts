@@ -1,5 +1,6 @@
 import { Router } from "express";
 import schoolRoutes from "./school.routes";
+import authRoutes from "./auth.routes";
 import subscriptionRoutes from "./subscription.routes";
 import roleRoutes from "./role.routes";
 import userRoutes from "./user.routes";
@@ -15,6 +16,7 @@ const router = Router();
 
 // Define all top-level API routes
 router.use("/schools", schoolRoutes);
+router.use("/auth", authRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/roles", roleRoutes);
 router.use("/users", userRoutes);
