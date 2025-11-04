@@ -64,13 +64,33 @@ export const createSchool = async (
   res: Response
 ): Promise<void> => {
   const { name, contact_email } = req.body;
+
+  if (!name || !contact_email) {
+    res.status(400).json({ error: "name and contact_email are required" });
+    return;
+  }
+
   try {
+    // ✅ Check if school exists
+    const existingSchool = await prisma.school.findFirst({
+      where: {
+        OR: [{ name }, { contact_email }],
+      },
+    });
+
+    if (existingSchool) {
+      res.status(409).json({ error: "School already exists" });
+      return;
+    }
+
+    // ✅ Create new school
     const newSchool: School = await prisma.school.create({
       data: {
         name,
         contact_email,
       },
     });
+
     res.status(201).json(newSchool);
   } catch (error) {
     console.error("Error creating school:", error);

@@ -1,5 +1,5 @@
-import { Request, Response } from "express";
-import { prisma } from "../prisma/client";
+import type { Request, Response } from "express";
+import prisma from "../services/prisma.service";
 
 export const getStudentsAtRisk = async (req: Request, res: Response) => {
   try {
