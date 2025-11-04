@@ -9,6 +9,7 @@ import alertRoutes from "./alert.routes";
 import parentStudentRelationshipRoutes from "./parentStudentRelationship.routes";
 import consentRoutes from "./consent.routes";
 import fitbitRoutes from './fitbit.routes'; //
+import counselorRoutes from "./counselor.routes";
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.use("/schools", schoolRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/roles", roleRoutes);
 router.use("/users", userRoutes);
+router.use("/counselor", counselorRoutes);
 router.use("/biometric-logs", biometricLogRoutes);
 router.use("/mood-logs", moodLogRoutes);
 router.use("/alerts", alertRoutes);
