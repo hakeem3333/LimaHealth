@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import { prisma } from "../prisma"; // Assuming this is correct
+import prisma  from "./prisma.service"; // Assuming this is correct
 
 dotenv.config();
 
