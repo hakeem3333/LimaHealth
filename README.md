@@ -24,7 +24,6 @@ LimaHealth is a digital health platform designed to support student wellness in 
 | ---------- | ------------------------ |
 | Backend    | Node.js, Express         |
 | Database   | PostgreSQL + Prisma ORM  |
-| Mobile/Web | React Native / Next.js   |
 | Auth       | JWT + Email Verification |
 
 ---
@@ -38,7 +37,7 @@ src/
  ├── services/
  ├── middlewares/
  ├── prisma/
- └── app.ts
+ └── server.ts
 ```
 
 ---
