@@ -1,0 +1,9 @@
+model Consent {
+  id                     String    @id @default(uuid())
+  userId                 String    @unique
+  consentGiven           Boolean   @default(false)
+  anonymizeData          Boolean   @default(false)
+  parentalConsentGiven   Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  user                   User      @relation(fields: [userId], references: [id])
+}

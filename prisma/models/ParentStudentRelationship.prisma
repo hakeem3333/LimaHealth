@@ -1,0 +1,8 @@
+model ParentStudentRelationship {
+  parentId    String
+  studentId   String
+  parent      User @relation("ParentToStudent", fields: [parentId], references: [id])
+  student     User @relation("StudentToParent", fields: [studentId], references: [id])
+
+  @@id([parentId, studentId])
+}
