@@ -5,8 +5,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "ts-node src/server.ts",
-    "merge-schema": "ts-node merge-schema.ts",
+    "dev": "tsx src/server.ts",
+    "merge-schema": "tsx merge-schema.ts",
+    "postmerge-schema": "npx prisma generate",
     "build": "npm run merge-schema && tsc",
     "start": "node dist/server.js"
   },
@@ -15,9 +16,12 @@
   "license": "ISC",
   "devDependencies": {
     "@prisma/client": "^6.13.0",
+    "@types/cors": "^2.8.19",
+    "@types/express-session": "^1.18.2",
     "@types/node": "^24.3.0",
     "prisma": "^6.13.0",
     "ts-node": "^10.9.2",
+    "tsx": "^4.20.4",
     "typescript": "^5.9.2"
   },
   "dependencies": {
@@ -25,8 +29,10 @@
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
     "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
+    "express-session": "^1.18.2",
     "jsonwebtoken": "^9.0.2"
   }
 }

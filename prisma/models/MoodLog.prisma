@@ -1,0 +1,9 @@
+model MoodLog {
+  id          String    @id @default(uuid())
+  userId      String
+  timestamp   DateTime  @default(now())
+  moodEmoji   String
+  notes       String?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id])
+}

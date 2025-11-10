@@ -1,5 +1,9 @@
 import { readFileSync, writeFileSync } from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Define the root directory for your schema files
 const schemaDir = path.join(__dirname, "prisma/models");
