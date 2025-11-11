@@ -1,10 +1,19 @@
+-- CreateEnum
+CREATE TYPE "public"."SchoolStatus" AS ENUM ('PENDING_EMAIL_VERIFICATION', 'PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED');
+
+-- CreateEnum
+CREATE TYPE "public"."Role" AS ENUM ('ADMIN', 'COUNSELOR', 'TEACHER', 'STUDENT');
+
 -- CreateTable
 CREATE TABLE "public"."School" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "contact_email" TEXT NOT NULL,
+    "website" TEXT,
+    "status" "public"."SchoolStatus" NOT NULL DEFAULT 'PENDING_EMAIL_VERIFICATION',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "activationData" JSONB,
 
     CONSTRAINT "School_pkey" PRIMARY KEY ("id")
 );
@@ -24,18 +33,10 @@ CREATE TABLE "public"."Subscription" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."Role" (
-    "id" SERIAL NOT NULL,
-    "name" TEXT NOT NULL,
-
-    CONSTRAINT "Role_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "public"."User" (
     "id" TEXT NOT NULL,
     "schoolId" TEXT NOT NULL,
-    "roleId" INTEGER NOT NULL,
+    "role" "public"."Role" NOT NULL,
     "firstName" TEXT NOT NULL,
     "lastName" TEXT NOT NULL,
     "email" TEXT NOT NULL,
@@ -109,20 +110,37 @@ CREATE TABLE "public"."Consent" (
     CONSTRAINT "Consent_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "public"."EmailVerificationToken" (
+    "id" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "schoolId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "EmailVerificationToken_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "School_contact_email_key" ON "public"."School"("contact_email");
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "public"."User"("email");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "User_schoolId_role_key" ON "public"."User"("schoolId", "role");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Consent_userId_key" ON "public"."Consent"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "EmailVerificationToken_token_key" ON "public"."EmailVerificationToken"("token");
 
 -- AddForeignKey
 ALTER TABLE "public"."Subscription" ADD CONSTRAINT "Subscription_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "public"."School"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."User" ADD CONSTRAINT "User_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "public"."School"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "public"."User" ADD CONSTRAINT "User_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "public"."Role"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."BiometricLog" ADD CONSTRAINT "BiometricLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -144,3 +162,6 @@ ALTER TABLE "public"."ParentStudentRelationship" ADD CONSTRAINT "ParentStudentRe
 
 -- AddForeignKey
 ALTER TABLE "public"."Consent" ADD CONSTRAINT "Consent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."EmailVerificationToken" ADD CONSTRAINT "EmailVerificationToken_schoolId_fkey" FOREIGN KEY ("schoolId") REFERENCES "public"."School"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

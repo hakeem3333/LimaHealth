@@ -1,6 +1,6 @@
 import { Router } from "express";
 import {
-  createSchool,
+  // createSchool,
   getAllSchools,
   getSchoolById,
   updateSchool,
@@ -43,7 +43,7 @@ const router = Router();
  * 400:
  * description: Invalid input.
  */
-router.post("/", createSchool);
+// router.post("/", createSchool);
 
 /**
  * @swagger
