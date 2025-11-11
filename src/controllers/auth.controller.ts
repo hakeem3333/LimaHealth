@@ -78,3 +78,35 @@ export const schoolSignup = async (req: Request, res: Response) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+
+export const verifyEmail = async (req: Request, res: Response) => {
+  try {
+    const { token } = req.query;
+    if (!token || typeof token !== "string") {
+      return res.status(400).send("Invalid token");
+    }
+
+    const record = await prisma.emailVerificationToken.findUnique({
+      where: { token },
+    });
+
+    if (!record) {
+      return res.status(404).send("Token not found or expired");
+    }
+
+    // Activate school
+    await prisma.school.update({
+      where: { id: record.schoolId },
+      data: { status: "ACTIVE" },
+    });
+
+    // Optionally delete token
+    await prisma.emailVerificationToken.delete({ where: { id: record.id } });
+
+    res.send("Email verified successfully! Your school is now active.");
+  } catch (error) {
+    console.error("Error verifying email:", error);
+    res.status(500).send("Internal server error");
+  }
+};
