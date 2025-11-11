@@ -13,7 +13,7 @@ export const transporter = nodemailer.createTransport({
 });
 
 export const sendVerificationEmail = async (to: string, token: string) => {
-  const verificationUrl = `http://localhost:3000/verify-email?token=${token}`;
+  const verificationUrl = `http://localhost:3000/api/v1/auth/verify-email?token=${token}`;
 
   const info = await transporter.sendMail({
     from: process.env.EMAIL_FROM,
