@@ -1,8 +1,9 @@
 import type { Request, Response } from "express";
-import prisma from "../services/prisma.service";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { sendVerificationEmail } from "../services/email.service";
+
+import prisma from "../../services/prisma.service";
+import { sendVerificationEmail } from "../../services/email.service";
 
 export const schoolSignup = async (req: Request, res: Response) => {
   try {
