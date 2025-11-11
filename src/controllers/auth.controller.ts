@@ -9,11 +9,12 @@ export const schoolSignup = async (req: Request, res: Response) => {
     const { name, contact_email, password, website, firstName, lastName } =
       req.body;
 
-    if (!name || !contact_email || !password || !firstName) {
+    // ✅ Validate required fields
+    if (!name || !contact_email || !password || !firstName || !lastName) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // ✅ Check duplicate school by email
+    // ✅ Check for duplicate school by email
     const existingSchool = await prisma.school.findUnique({
       where: { contact_email },
       include: { users: true },
@@ -25,56 +26,50 @@ export const schoolSignup = async (req: Request, res: Response) => {
         .json({ message: "A school with this email already exists" });
     }
 
+    // ✅ Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // ✅ Create school + admin user in a transaction
     const [school, adminUser] = await prisma.$transaction(async (tx) => {
-      // ✅ Create school
       const school = await tx.school.create({
-        data: {
-          name,
-          contact_email,
-          website,
-        },
+        data: { name, contact_email, website },
       });
 
-      // ✅ Create admin user
       const adminUser = await tx.user.create({
         data: {
           firstName,
           lastName,
           email: contact_email,
           passwordHash: hashedPassword,
-          role: "ADMIN", // ✅ Enum/string
-          schoolId: school.id, // ✅ Link
+          role: "ADMIN", // Enum/string for role
+          schoolId: school.id, // Link user to school
         },
       });
 
       return [school, adminUser];
     });
 
-    // ✅ Generate verification token
+    // ✅ Generate verification token (3 hours expiry)
     const token = uuidv4();
-    const expiresAt = new Date(Date.now() + 3 * 60 * 60 * 1000); // 3 hours
+    const expiresAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
 
     await prisma.emailVerificationToken.create({
-      data: {
-        schoolId: school.id,
-        token,
-        expiresAt,
-      },
+      data: { schoolId: school.id, token, expiresAt },
     });
 
     // ✅ Send verification email
-    const result = await sendVerificationEmail(contact_email, token);
+    const emailResult = await sendVerificationEmail(contact_email, token);
 
+    // ✅ Prepare response payload
     const responsePayload: any = {
       message: "Signup successful. Please verify your email.",
       schoolId: school.id,
       adminUserId: adminUser.id,
     };
 
-    if (result?.preview) {
-      responsePayload.previewLink = result.preview;
+    // Include clickable preview link in dev (smtp4dev)
+    if (emailResult?.verificationUrl) {
+      responsePayload.previewLink = emailResult.verificationUrl;
     }
 
     return res.status(201).json(responsePayload);
