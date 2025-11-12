@@ -25,3 +25,36 @@ export const sendVerificationEmail = async (to: string, token: string) => {
   console.log("Preview URL (smtp4dev):", info.messageId);
   return info;
 };
+
+
+// export const sendEmail = async (to: string, subject: string, html: string) => {
+//   const info = await transporter.sendMail({
+//     from: process.env.EMAIL_FROM,
+//     to,
+//     subject,
+//     html,
+//   });
+
+//   console.log("Email sent:", info.messageId);
+//   return info;
+// };
+
+interface MailOptions {
+  to: string;
+  subject: string;
+  text?: string;
+  html?: string;
+}
+
+export const sendEmail = async ({ to, subject, text, html }: MailOptions) => {
+  const info = await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject,
+    text,
+    html,
+  });
+
+  console.log("Email sent:", info.messageId);
+  return info;
+};

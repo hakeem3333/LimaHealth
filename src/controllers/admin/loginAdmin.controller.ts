@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import prisma from "../../services/prisma.service";
-import { sendEmail } from "../../services/email"; // your mailer
+import { sendEmail } from "../../services/email.service"; // your mailer
 
 export const adminLoginStep1 = async (req: Request, res: Response) => {
   try {
@@ -28,7 +28,7 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
         expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min
       },
     });
-
+    console.log("Print User Email @LogIn: ", user.email);
     await sendEmail({
       to: user.email,
       subject: "Your admin login code",

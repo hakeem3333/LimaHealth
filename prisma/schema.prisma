@@ -25,7 +25,7 @@ enum Role {
 
 model School {
   id                      String                   @id @default(uuid())
-  name                    String
+  name                    String                   @unique
   contact_email           String                   @unique
   website                 String?
   status                  SchoolStatus             @default(PENDING_EMAIL_VERIFICATION)
