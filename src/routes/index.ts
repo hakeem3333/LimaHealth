@@ -11,6 +11,7 @@ import parentStudentRelationshipRoutes from "./parentStudentRelationship.routes"
 import consentRoutes from "./consent.routes";
 import fitbitRoutes from './fitbit.routes'; //
 import counselorRoutes from "./counselor.routes";
+import adminSetupRoutes from "./adminSetup.routes";
 
 const router = Router();
 
@@ -27,5 +28,6 @@ router.use("/alerts", alertRoutes);
 router.use("/parent-student-relationships", parentStudentRelationshipRoutes);
 router.use("/consents", consentRoutes);
 router.use("/fitbit", fitbitRoutes);
+router.use("/admin/setup", adminSetupRoutes);
 
 export default router;

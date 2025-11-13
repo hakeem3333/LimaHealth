@@ -89,6 +89,24 @@ export const schoolSignup = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    // Before creating admin
+    // ✅ Check if another admin already exists for this school
+  const existingAdmin = await prisma.user.findFirst({
+    where: {
+    role: "ADMIN",
+    school: {
+      name,
+    },
+  },
+  });
+
+if (existingAdmin) {
+  return res
+    .status(400)
+    .json({ message: "An admin already exists for this school" });
+}
+
+
     const existingSchool = await prisma.school.findUnique({
       where: { contact_email },
     });

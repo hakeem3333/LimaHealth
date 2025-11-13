@@ -1,21 +1,23 @@
-// // middleware/auth.ts
-// export function authorizeRoles(...roles: string[]) {
-//   return (req: any, res: Response, next: NextFunction) => {
-//     if (!roles.includes(req.user.role)) {
-//       return res.status(403).json({ error: "Access denied" });
-//     }
-//     next();
-//   };
-// }
-
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import prisma from "../services/prisma.service";
 
-export interface AuthRequest extends Request {
-  user?: any;
-}
+/**
+ * Custom Request interface to include the authenticated user object.
+ * This MUST be exported as a named export.
+ */
+export type AuthRequest = Request & {
+  user?: {
+    id: string;
+    email: string;
+    role: string;
+    schoolId?: string;
+  };
+};
 
+/**
+ * Middleware for authenticating users via JWT token in the Authorization header.
+ */
 export const authenticate = async (
   req: AuthRequest,
   res: Response,
@@ -29,11 +31,19 @@ export const authenticate = async (
 
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId: string;
+      userId?: string; // <-- make this optional
+      id?: string; // in case the token used 'id' instead of 'userId'
     };
 
+    // ✅ Support both possible token shapes
+    const id = decoded.userId || decoded.id;
+    if (!id) {
+      console.error("JWT missing userId/id:", decoded);
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
+
     const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
+      where: { id },
     });
     if (!user) return res.status(401).json({ message: "Invalid token" });
 
@@ -45,10 +55,17 @@ export const authenticate = async (
   }
 };
 
+
+/**
+ * Middleware for authorizing roles.
+ */
 export const authorize =
   (...allowedRoles: string[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user)
+      return res
+        .status(401)
+        .json({ message: "Unauthorized: User object missing" });
 
     if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({ message: "Forbidden: insufficient role" });

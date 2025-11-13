@@ -74,7 +74,7 @@ model User {
   consent           Consent?
 
   // ✅ Only one admin per school
-  @@unique([schoolId, role], name: "OneAdminPerSchool")
+ // @@unique([schoolId, role], name: "OneAdminPerSchool")
 }
 
 model BiometricLog {

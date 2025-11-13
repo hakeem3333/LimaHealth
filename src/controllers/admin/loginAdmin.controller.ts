@@ -46,6 +46,6 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Problem with sending email. Please try again soon" });
   }
 };
