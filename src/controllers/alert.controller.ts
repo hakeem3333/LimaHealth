@@ -1,22 +1,28 @@
 import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
 import type { Alert } from "../types/models";
+import { z } from "zod";
 
-/**
- * Retrieves all alerts from the database.
- * @param req The Express request object.
- * @param res The Express response object.
- */
+// 🧱 Validation schemas
+const alertSchema = z.object({
+  studentId: z.string().uuid("Invalid student ID"),
+  counselorId: z.string().uuid("Invalid counselor ID").optional(),
+  alertType: z.string().min(1, "Alert type is required"),
+  message: z.string().min(1, "Message is required"),
+  isResolved: z.boolean().default(false),
+  notes: z.string().optional(),
+});
+
+const updateAlertSchema = alertSchema.partial();
+
+// 🧭 Get all alerts
 export const getAllAlerts = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     const alerts: Alert[] = await prisma.alert.findMany({
-      include: {
-        student: true,
-        counselor: true,
-      },
+      include: { student: true, counselor: true },
     });
     res.status(200).json(alerts);
   } catch (error) {
@@ -25,28 +31,19 @@ export const getAllAlerts = async (
   }
 };
 
-/**
- * Retrieves a single alert by its ID.
- * @param req The Express request object.
- * @param res The Express response object.
- */
+// 🧭 Get alert by ID
 export const getAlertById = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   const { id } = req.params;
   try {
-    const alert: Alert | null = await prisma.alert.findUnique({
+    const alert = await prisma.alert.findUnique({
       where: { id },
-      include: {
-        student: true,
-        counselor: true,
-      },
+      include: { student: true, counselor: true },
     });
-    if (!alert) {
-      res.status(404).json({ message: "Alert not found" });
-      return;
-    }
+
+    if (!alert) return res.status(404).json({ message: "Alert not found" });
     res.status(200).json(alert);
   } catch (error) {
     console.error("Error fetching alert by ID:", error);
@@ -54,28 +51,20 @@ export const getAlertById = async (
   }
 };
 
-/**
- * Creates a new alert.
- * @param req The Express request object with the new alert data.
- * @param res The Express response object.
- */
+// 🧭 Create new alert
 export const createAlert = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { studentId, counselorId, alertType, message, isResolved, notes } =
-    req.body;
   try {
-    const newAlert: Alert = await prisma.alert.create({
-      data: {
-        studentId,
-        counselorId,
-        alertType,
-        message,
-        isResolved,
-        notes,
-      },
-    });
+    const parsed = alertSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({
+        message: "Validation error",
+        errors: parsed.error.flatten().fieldErrors,
+      });
+
+    const newAlert = await prisma.alert.create({ data: parsed.data });
     res.status(201).json(newAlert);
   } catch (error) {
     console.error("Error creating alert:", error);
@@ -83,29 +72,23 @@ export const createAlert = async (
   }
 };
 
-/**
- * Updates an existing alert by its ID.
- * @param req The Express request object with the updated alert data.
- * @param res The Express response object.
- */
+// 🧭 Update alert
 export const updateAlert = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   const { id } = req.params;
-  const { studentId, counselorId, alertType, message, isResolved, notes } =
-    req.body;
   try {
-    const updatedAlert: Alert = await prisma.alert.update({
+    const parsed = updateAlertSchema.safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({
+        message: "Validation error",
+        errors: parsed.error.flatten().fieldErrors,
+      });
+
+    const updatedAlert = await prisma.alert.update({
       where: { id },
-      data: {
-        studentId,
-        counselorId,
-        alertType,
-        message,
-        isResolved,
-        notes,
-      },
+      data: parsed.data,
     });
     res.status(200).json(updatedAlert);
   } catch (error) {
@@ -114,21 +97,15 @@ export const updateAlert = async (
   }
 };
 
-/**
- * Deletes an alert by its ID.
- * @param req The Express request object with the alert ID.
- * @param res The Express response object.
- */
+// 🧭 Delete alert
 export const deleteAlert = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   const { id } = req.params;
   try {
-    await prisma.alert.delete({
-      where: { id },
-    });
-    res.status(204).send(); // 204 No Content for a successful delete
+    await prisma.alert.delete({ where: { id } });
+    res.status(204).send();
   } catch (error) {
     console.error("Error deleting alert:", error);
     res.status(500).json({ error: "Internal server error" });
