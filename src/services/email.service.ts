@@ -58,3 +58,33 @@ export const sendEmail = async ({ to, subject, text, html }: MailOptions) => {
   console.log("Email sent:", info.messageId);
   return info;
 };
+
+// 🔹 Welcome email for new users
+export const sendWelcomeEmail = async ({
+  to,
+  name,
+  role,
+  password,
+}: {
+  to: string;
+  name: string;
+  role: string;
+  password: string;
+}) => {
+  const subject = `Welcome to BioAware! 🎉`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#333">
+      <h2>Hi ${name},</h2>
+      <p>Welcome to <strong>BioAware</strong>! You’ve been added as a <strong>${role}</strong> in your school’s BioAware account.</p>
+      <p><strong>Your login details:</strong></p>
+      <ul>
+        <li><strong>Email:</strong> ${to}</li>
+        <li><strong>Password:</strong> ${password}</li>
+      </ul>
+      <p>👉 Please log in and update your password immediately for security.</p>
+      <p>— The BioAware Team</p>
+    </div>
+  `;
+
+  return sendEmail({ to, subject, html });
+};
