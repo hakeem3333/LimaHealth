@@ -1,10 +1,10 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import prisma from "../services/prisma.service";
+import { z } from "zod";
 
 /**
  * Custom Request interface to include the authenticated user object.
- * This MUST be exported as a named export.
  */
 export type AuthRequest = Request & {
   user?: {
@@ -15,6 +15,21 @@ export type AuthRequest = Request & {
   };
 };
 
+// Zod schema to validate the Authorization header
+const authHeaderSchema = z.object({
+  authorization: z
+    .string()
+    .startsWith("Bearer ", {
+      message: "Authorization header must start with Bearer",
+    }),
+});
+
+// Zod schema to validate JWT payload
+const jwtPayloadSchema = z.object({
+  userId: z.string().optional(),
+  id: z.string().optional(),
+});
+
 /**
  * Middleware for authenticating users via JWT token in the Authorization header.
  */
@@ -24,27 +39,22 @@ export const authenticate = async (
   next: NextFunction
 ) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ message: "No token provided" });
-    }
+    // Validate headers
+    authHeaderSchema.parse(req.headers);
 
-    const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId?: string; // <-- make this optional
-      id?: string; // in case the token used 'id' instead of 'userId'
-    };
+    const token = req.headers.authorization!.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
 
-    // ✅ Support both possible token shapes
-    const id = decoded.userId || decoded.id;
+    // Validate JWT payload
+    const payload = jwtPayloadSchema.parse(decoded);
+
+    const id = payload.userId || payload.id;
     if (!id) {
       console.error("JWT missing userId/id:", decoded);
       return res.status(401).json({ message: "Invalid token payload" });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id },
-    });
+    const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return res.status(401).json({ message: "Invalid token" });
 
     req.user = user;
@@ -54,7 +64,6 @@ export const authenticate = async (
     return res.status(401).json({ message: "Unauthorized" });
   }
 };
-
 
 /**
  * Middleware for authorizing roles.
