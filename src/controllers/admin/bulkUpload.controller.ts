@@ -9,41 +9,80 @@ import { z } from "zod";
 import { Parser } from "json2csv";
 import { sendWelcomeEmail } from "../../services/email.service";
 
-// ✅ Multer for temporary upload
+// =======================
+// 🧩 Multer Upload Config
+// =======================
 const upload = multer({ dest: "uploads/" });
 export const uploadCSV = upload.single("file");
 
-// ✅ Zod validation schema
+// =======================
+// 🧩 Zod Schemas
+// =======================
+
+// Schema for a single user record from CSV
 const userSchema = z.object({
   firstName: z.string().min(1, "Missing first name"),
   lastName: z.string().min(1, "Missing last name"),
   email: z.string().email("Invalid email"),
   password: z.string().optional(),
   role: z.enum(["STUDENT", "TEACHER", "COUNSELOR"], {
-    required_error: "Role required",
+    required_error: "Role is required",
+    invalid_type_error: "Role must be STUDENT, TEACHER, or COUNSELOR",
   }),
 });
 
-// ✅ In-memory cache for failed entries
+// Schema for validating the upload request context
+const bulkUploadRequestSchema = z.object({
+  user: z.object({
+    id: z.string().optional(),
+    schoolId: z.string().min(1, "Missing school context"),
+  }),
+  file: z
+    .object({
+      path: z.string(),
+      originalname: z.string(),
+      mimetype: z.string().regex(/^text\/csv|application\/vnd.ms-excel$/, {
+        message: "Invalid file type. Must be CSV",
+      }),
+    })
+    .nullable(),
+});
+
+// =======================
+// 🧠 In-memory cache for failed entries
+// =======================
 let lastFailedRecords: any[] = [];
 
-/**
- * Admin bulk upload users (students/teachers/counsellors)
- */
+// =======================
+// 📦 Bulk Upload Controller
+// =======================
 export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
-  const adminId = req.user?.id;
-  const schoolId = req.user?.schoolId;
-  if (!schoolId) return res.status(403).json({ message: "No school context" });
-
-  if (!req.file)
-    return res.status(400).json({ message: "No CSV file uploaded" });
-
-  const filePath = req.file.path;
-  const usersSummary: any[] = [];
-  const failedRecords: any[] = [];
-  let createdCount = 0;
-
   try {
+    // ✅ Validate request context (school, file, etc.)
+    const parsedRequest = bulkUploadRequestSchema.safeParse({
+      user: req.user,
+      file: req.file,
+    });
+
+    if (!parsedRequest.success) {
+      return res.status(400).json({
+        message: "Invalid upload request",
+        errors: parsedRequest.error.flatten().fieldErrors,
+      });
+    }
+
+    const { user, file } = parsedRequest.data;
+    const { id: adminId, schoolId } = user;
+    if (!file) {
+      return res.status(400).json({ message: "No CSV file uploaded" });
+    }
+
+    const filePath = file.path;
+    const usersSummary: any[] = [];
+    const failedRecords: any[] = [];
+    let createdCount = 0;
+
+    // ✅ Read and parse CSV
     const fileContent = await fs.readFile(filePath, "utf-8");
     const records = parse(fileContent, {
       columns: true,
@@ -105,7 +144,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // ✅ Save upload log
+    // ✅ Log upload attempt
     await prisma.bulkUploadLog.create({
       data: {
         adminId,
@@ -117,10 +156,10 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // ✅ Cache failed records for CSV download
+    // ✅ Cache failed entries for later download
     lastFailedRecords = failedRecords;
 
-    // ✅ Clean up file
+    // ✅ Clean up uploaded file
     await fs.unlink(filePath);
 
     return res.status(200).json({
@@ -139,9 +178,9 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * Download failed entries as CSV
- */
+// =======================
+// 💾 Download Failed CSV
+// =======================
 export const getFailedCSV = async (_req: AuthRequest, res: Response) => {
   try {
     if (lastFailedRecords.length === 0)
