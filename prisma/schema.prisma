@@ -35,6 +35,8 @@ model School {
   subscriptions           Subscription[]
   emailVerificationTokens EmailVerificationToken[]
 
+  bulkUploadLogs          BulkUploadLog[]          @relation("SchoolBulkUploads")
+
   // form data after activation request
   activationData Json?
 }
@@ -72,6 +74,8 @@ model User {
   parentOf          ParentStudentRelationship[] @relation("ParentToStudent")
   studentOf         ParentStudentRelationship[] @relation("StudentToParent")
   consent           Consent?
+
+  bulkUploadLogs    BulkUploadLog[]             @relation("AdminBulkUploads")
 
   // ✅ Only one admin per school
  // @@unique([schoolId, role], name: "OneAdminPerSchool")
@@ -149,4 +153,17 @@ model AdminOtp {
   code      String
   expiresAt DateTime
   createdAt DateTime @default(now())
+}
+
+model BulkUploadLog {
+  id           String   @id @default(uuid())
+  adminId      String
+  schoolId     String
+  totalRecords Int
+  createdCount Int
+  failedCount  Int
+  createdAt    DateTime @default(now())
+
+  admin  User   @relation("AdminBulkUploads", fields: [adminId], references: [id])
+  school School @relation("SchoolBulkUploads", fields: [schoolId], references: [id])
 }
