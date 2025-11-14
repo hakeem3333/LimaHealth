@@ -19,7 +19,7 @@ export const uploadCSV = upload.single("file");
 // 🧩 Zod Schemas
 // =======================
 
-// Schema for a single user record from CSV
+// Schema for a single CSV row
 const userSchema = z.object({
   firstName: z.string().min(1, "Missing first name"),
   lastName: z.string().min(1, "Missing last name"),
@@ -31,7 +31,7 @@ const userSchema = z.object({
   }),
 });
 
-// Schema for validating the upload request context
+// Schema for validating request context + file
 const bulkUploadRequestSchema = z.object({
   user: z.object({
     id: z.string().optional(),
@@ -41,15 +41,15 @@ const bulkUploadRequestSchema = z.object({
     .object({
       path: z.string(),
       originalname: z.string(),
-      mimetype: z.string().regex(/^text\/csv|application\/vnd.ms-excel$/, {
+      mimetype: z.string().regex(/^(text\/csv|application\/vnd\.ms-excel)$/, {
         message: "Invalid file type. Must be CSV",
       }),
     })
-    .nullable(),
+    .optional(), // <-- FIXED (was nullable)
 });
 
 // =======================
-// 🧠 In-memory cache for failed entries
+// 🧠 Failed record cache
 // =======================
 let lastFailedRecords: any[] = [];
 
@@ -58,7 +58,9 @@ let lastFailedRecords: any[] = [];
 // =======================
 export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
   try {
-    // ✅ Validate request context (school, file, etc.)
+    // DEBUG: See what Multer passed
+    console.log("Received file:", req.file);
+
     const parsedRequest = bulkUploadRequestSchema.safeParse({
       user: req.user,
       file: req.file,
@@ -72,17 +74,19 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
     }
 
     const { user, file } = parsedRequest.data;
-    const { id: adminId, schoolId } = user;
+
     if (!file) {
       return res.status(400).json({ message: "No CSV file uploaded" });
     }
+
+    const { id: adminId, schoolId } = user;
 
     const filePath = file.path;
     const usersSummary: any[] = [];
     const failedRecords: any[] = [];
     let createdCount = 0;
 
-    // ✅ Read and parse CSV
+    // Read and parse CSV
     const fileContent = await fs.readFile(filePath, "utf-8");
     const records = parse(fileContent, {
       columns: true,
@@ -92,6 +96,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
 
     for (const record of records) {
       const parsed = userSchema.safeParse(record);
+
       if (!parsed.success) {
         failedRecords.push({
           ...record,
@@ -106,6 +111,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
 
       const { firstName, lastName, email, password, role } = parsed.data;
 
+      // Check if user exists
       const existing = await prisma.user.findUnique({ where: { email } });
       if (existing) {
         usersSummary.push({ email, status: "⚠️ Already exists" });
@@ -129,7 +135,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         createdCount++;
         usersSummary.push({ email, role, status: "✅ Created" });
 
-        // Send welcome email (non-blocking)
+        // Send welcome email (fire-and-forget)
         sendWelcomeEmail({
           to: email,
           name: `${firstName} ${lastName}`,
@@ -144,7 +150,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // ✅ Log upload attempt
+    // Log the upload attempt
     await prisma.bulkUploadLog.create({
       data: {
         adminId,
@@ -156,10 +162,9 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // ✅ Cache failed entries for later download
     lastFailedRecords = failedRecords;
 
-    // ✅ Clean up uploaded file
+    // Cleanup temp file
     await fs.unlink(filePath);
 
     return res.status(200).json({
@@ -188,8 +193,10 @@ export const getFailedCSV = async (_req: AuthRequest, res: Response) => {
 
     const parser = new Parser();
     const csv = parser.parse(lastFailedRecords);
+
     res.header("Content-Type", "text/csv");
     res.attachment("failed_uploads.csv");
+
     return res.send(csv);
   } catch (err) {
     console.error("Failed CSV generation error:", err);
