@@ -2,13 +2,31 @@ import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
 import type { User } from "../types/models";
 import bcrypt from "bcrypt";
+import { z } from "zod";
 
 const saltRounds = 10;
 
+// Zod schemas for input validation
+const createUserSchema = z.object({
+  schoolId: z.string().uuid(),
+  roleId: z.string().uuid(),
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(6),
+});
+
+const updateUserSchema = z.object({
+  schoolId: z.string().uuid().optional(),
+  roleId: z.string().uuid().optional(),
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  password: z.string().min(6).optional(),
+});
+
 /**
  * Retrieves all users from the database.
- * @param req The Express request object.
- * @param res The Express response object.
  */
 export const getAllUsers = async (
   req: Request,
@@ -36,9 +54,7 @@ export const getAllUsers = async (
 };
 
 /**
- * Retrieves a single user by their ID.
- * @param req The Express request object.
- * @param res The Express response object.
+ * Retrieves a single user by ID.
  */
 export const getUserById = async (
   req: Request,
@@ -73,70 +89,66 @@ export const getUserById = async (
 
 /**
  * Creates a new user.
- * @param req The Express request object with the new user data.
- * @param res The Express response object.
  */
 export const createUser = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { schoolId, roleId, firstName, lastName, email, password } = req.body;
   try {
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+    const parsed = createUserSchema.parse(req.body);
+    const passwordHash = await bcrypt.hash(parsed.password, saltRounds);
     const newUser: User = await prisma.user.create({
       data: {
-        schoolId,
-        roleId,
-        firstName,
-        lastName,
-        email,
+        ...parsed,
         passwordHash,
       },
     });
     res.status(201).json(newUser);
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ errors: error.errors });
+      return;
+    }
     console.error("Error creating user:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
 /**
- * Updates an existing user by their ID.
- * @param req The Express request object with the updated user data.
- * @param res The Express response object.
+ * Updates an existing user by ID.
  */
 export const updateUser = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   const { id } = req.params;
-  const { schoolId, roleId, firstName, lastName, email, password } = req.body;
   try {
-    const updateData: any = {
-      schoolId,
-      roleId,
-      firstName,
-      lastName,
-      email,
-    };
-    if (password) {
-      updateData.passwordHash = await bcrypt.hash(password, saltRounds);
+    const parsed = updateUserSchema.parse(req.body);
+    const updateData: any = { ...parsed };
+
+    if (parsed.password) {
+      updateData.passwordHash = await bcrypt.hash(parsed.password, saltRounds);
+      delete updateData.password;
     }
+
     const updatedUser: User = await prisma.user.update({
       where: { id },
       data: updateData,
     });
+
     res.status(200).json(updatedUser);
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ errors: error.errors });
+      return;
+    }
     console.error("Error updating user:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
 /**
- * Deletes a user by their ID.
- * @param req The Express request object with the user ID.
- * @param res The Express response object.
+ * Deletes a user by ID.
  */
 export const deleteUser = async (
   req: Request,
@@ -144,10 +156,8 @@ export const deleteUser = async (
 ): Promise<void> => {
   const { id } = req.params;
   try {
-    await prisma.user.delete({
-      where: { id },
-    });
-    res.status(204).send(); // 204 No Content for a successful delete
+    await prisma.user.delete({ where: { id } });
+    res.status(204).send();
   } catch (error) {
     console.error("Error deleting user:", error);
     res.status(500).json({ error: "Internal server error" });

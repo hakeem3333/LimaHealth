@@ -1,9 +1,20 @@
+enum SchoolStatus {
+  PENDING_EMAIL_VERIFICATION
+  PENDING_ACTIVATION
+  ACTIVE
+  SUSPENDED
+}
+
 model School {
   id              String         @id @default(uuid())
   name            String
   contact_email   String
+  status        SchoolStatus @default(PENDING_EMAIL_VERIFICATION)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   users           User[]
   subscriptions   Subscription[]
+
+  // form data after activation request
+  activationData Json?
 }
