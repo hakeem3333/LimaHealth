@@ -5,10 +5,7 @@ import { z } from "zod";
 
 // Validate user input
 const studentIdSchema = z.object({
-  id: z
-    .string()
-    .transform(Number)
-    .refine((n) => !isNaN(n), "Invalid student ID"),
+  id: z.string().transform(Number).refine(n => !isNaN(n), "Invalid student ID"),
 });
 
 // =============================
@@ -69,7 +66,8 @@ export const getStudentDetails = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    if (!student) return res.status(404).json({ message: "Student not found" });
+    if (!student)
+      return res.status(404).json({ message: "Student not found" });
 
     res.json(student);
   } catch (error) {

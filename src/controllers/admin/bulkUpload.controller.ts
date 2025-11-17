@@ -96,10 +96,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       if (!parsed.success) {
         const errMsg = parsed.error.issues.map((i) => i.message).join(", ");
         failedRecords.push({ ...record, error: errMsg });
-        usersSummary.push({
-          email: record.email || "(no email)",
-          status: "❌ Validation failed",
-        });
+        usersSummary.push({ email: record.email || "(no email)", status: "❌ Validation failed" });
         continue;
       }
 
@@ -135,9 +132,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
           name: `${firstName} ${lastName}`,
           role,
           password: tempPassword,
-        }).catch((err) =>
-          console.error("Welcome email failed for", email, err)
-        );
+        }).catch((err) => console.error("Welcome email failed for", email, err));
       } catch (err: any) {
         failedRecords.push({ ...record, error: err.message });
         usersSummary.push({ email, role, status: "❌ Creation failed" });
@@ -163,9 +158,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       failedCount: failedRecords.length,
       summary: usersSummary,
       failedDownload:
-        failedRecords.length > 0
-          ? "/api/v1/admin/setup/bulk-upload/failed-csv"
-          : null,
+        failedRecords.length > 0 ? "/api/v1/admin/setup/bulk-upload/failed-csv" : null,
     });
   } catch (err) {
     console.error("Bulk upload error:", err);
