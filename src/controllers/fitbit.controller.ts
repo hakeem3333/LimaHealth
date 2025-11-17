@@ -32,12 +32,14 @@ export const handleFitbitCallback = async (req: Request, res: Response) => {
   }
 
   const { code, error } = parsed.data;
+
   if (error) {
     console.error("Fitbit authorization error:", error);
     return res.redirect("/settings?error=fitbit_auth_denied");
   }
 
-  const userId = (req as any).session?.userId;
+  // ⬇⬇⬇ UPDATED FOR JWT (NOT sessions)
+  const userId = (req as any).user?.id;
   if (!code || !userId) {
     return res.redirect("/settings?error=missing_auth_code_or_user");
   }
@@ -52,6 +54,7 @@ export const handleFitbitCallback = async (req: Request, res: Response) => {
       scope,
       token_type,
     } = tokenData;
+
     const expiresAt = new Date(Date.now() + expires_in * 1000);
 
     await prisma.fitbitCredential.upsert({
@@ -83,27 +86,35 @@ export const handleFitbitCallback = async (req: Request, res: Response) => {
 };
 
 export const syncFitbitData = async (req: Request, res: Response) => {
-  const userId = (req as any).session?.userId;
-  if (!userId) return res.status(401).send({ error: "User not identified." });
+  // ⬇⬇⬇ UPDATED FOR JWT (NOT sessions)
+  const userId = (req as any).user?.id;
+  if (!userId)
+    return res
+      .status(401)
+      .send({ error: "Unauthorized — no user found in token." });
 
   try {
     let credentials = await prisma.fitbitCredential.findUnique({
       where: { userId },
     });
-    if (!credentials)
+
+    if (!credentials) {
       return res
         .status(404)
         .send({ error: "Fitbit not linked for this user." });
+    }
 
     let accessToken = credentials.accessToken;
     const now = Date.now();
 
+    // Refresh token if it expires in the next 5 min
     if (
       credentials.expiresAt &&
       credentials.expiresAt.getTime() < now + 300_000
     ) {
       const newTokens = await refreshAccessToken(credentials.refreshToken);
       const expiresAt = new Date(now + newTokens.expires_in * 1000);
+
       credentials = await prisma.fitbitCredential.update({
         where: { userId },
         data: {
@@ -112,22 +123,22 @@ export const syncFitbitData = async (req: Request, res: Response) => {
           expiresAt,
         },
       });
+
       accessToken = credentials.accessToken;
     }
 
     const biometricData = await getAllDailyBiometrics(accessToken);
     const newLog = await saveBiometricData(userId, biometricData);
 
-    return res
-      .status(200)
-      .send({
-        message: "Biometric data synced and saved successfully.",
-        data: newLog,
-      });
-  } catch (error) {
+    return res.status(200).send({
+      message: "Biometric data synced and saved successfully.",
+      data: newLog,
+    });
+  } catch (error: any) {
     console.error("Error during Fitbit sync:", error);
-    return res
-      .status(500)
-      .send({ error: "Failed to sync Fitbit data.", details: error.message });
+    return res.status(500).send({
+      error: "Failed to sync Fitbit data.",
+      details: error.message,
+    });
   }
 };

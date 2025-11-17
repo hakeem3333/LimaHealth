@@ -1,44 +1,34 @@
 // src/routes/fitbit.routes.ts
 
 import { Router } from "express";
-// Fix: Ensure correct import of Request and Response types
-import type { Request, Response } from "express";
-// Import controller functions instead of service functions
 import {
   authorizeFitbit,
   handleFitbitCallback,
   syncFitbitData,
 } from "../controllers/fitbit.controller";
 
-// Create a new router instance
+// 🔐 JWT auth middleware
+import { authenticate } from "../middleware/auth.middleware";
+// (adjust path if your file name differs)
+
 const router = Router();
 
 /**
- * Middleware to ensure user is authenticated (required for linking)
- * NOTE: This is placeholder middleware assuming 'req.session.userId' is set
- * by your application's session management.
+ * Fitbit OAuth Routes (Protected with JWT except callback)
  */
-const ensureAuthenticated = (req: Request, res: Response, next: Function) => {
-  // This is a placeholder for your actual authentication check
-  if (!(req as any).session?.userId) {
-    // In a real app, this should redirect or return a 401
-    return res
-      .status(401)
-      .send({ error: "Authentication required to link Fitbit." });
-  }
-  next();
-};
 
-// Route 1: Initiates the Fitbit OAuth flow
+// Initiates Fitbit OAuth flow
 // GET /fitbit/auth
-router.get("/auth", ensureAuthenticated, authorizeFitbit);
+router.get("/auth", authenticate, authorizeFitbit);
 
-// Route 2: Handles the callback after successful Fitbit authorization
+// Fitbit redirects back to this URL
 // GET /fitbit/callback
-router.get("/callback", handleFitbitCallback);
+// NOTE: Does not require JWT because Fitbit sends the user back with ?code=...
+//       BUT you *can* protect it with JWT if this URL is hit from your app only.
+router.get("/callback", authenticate, handleFitbitCallback);
 
-// Route 3: Manually triggers data fetch and save (including token refresh logic)
+// Sync data (requires JWT + Fitbit must be linked)
 // POST /fitbit/sync
-router.post("/sync", ensureAuthenticated, syncFitbitData);
+router.post("/sync", authenticate, syncFitbitData);
 
 export default router;
