@@ -1,22 +1,26 @@
 import { Router } from "express";
 import {
   createSubscriptionSession,
-  paystackWebhook,
+  stripeWebhook,
   getSubscriptionStatus,
 } from "../controllers/billing.controller";
 import { authenticate, authorize } from "../middleware/auth.middleware";
+
 
 const router = Router();
 
 router.post(
   "/initialize",
   authenticate,
-  authorize("admin"), // ONLY school admins can purchase plans
+  authorize("admin"),
   createSubscriptionSession
 );
 
-// webhook - no auth required
-router.post("/webhook", paystackWebhook);
+router.post(
+  "/webhook",
+  express.raw({ type: "application/json" }), // Needed for Stripe
+  stripeWebhook
+);
 
 router.get(
   "/status/:schoolId",
