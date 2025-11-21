@@ -1,7 +1,9 @@
 import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
-import { initializeSubscription } from "../services/paystack.service";
-import crypto from "crypto";
+import {
+  stripe,
+  createStripeCheckoutSession,
+} from "../services/stripe.service";
 
 export const createSubscriptionSession = async (
   req: Request,
@@ -14,101 +16,90 @@ export const createSubscriptionSession = async (
       return res.status(400).json({ error: "Missing required fields." });
     }
 
-    const planCode =
+    const priceId =
       planTier === "basic"
-        ? process.env.PAYSTACK_BASIC_PLAN
+        ? process.env.STRIPE_BASIC_PRICE
         : planTier === "standard"
-        ? process.env.PAYSTACK_STANDARD_PLAN
-        : process.env.PAYSTACK_PREMIUM_PLAN;
+        ? process.env.STRIPE_STANDARD_PRICE
+        : process.env.STRIPE_PREMIUM_PRICE;
 
-    if (!planCode) {
+    if (!priceId) {
       return res.status(400).json({ error: "Invalid plan tier." });
     }
 
-    // initialize checkout URL
-    const session = await initializeSubscription({
+    const session = await createStripeCheckoutSession({
       email: adminEmail,
-      plan: planCode,
+      priceId,
+      schoolId,
     });
 
     return res.status(200).json({
-      authorizationUrl: session.data.authorization_url,
-      reference: session.data.reference,
+      checkoutUrl: session.url,
+      sessionId: session.id,
     });
   } catch (err) {
-    console.error("Paystack init error:", err);
+    console.error("Stripe init error:", err);
     return res
       .status(500)
       .json({ error: "Failed to initialize subscription." });
   }
 };
 
-export const paystackWebhook = async (req: Request, res: Response) => {
-  const secret = process.env.PAYSTACK_SECRET_KEY!;
-  const hash = crypto
-    .createHmac("sha512", secret)
-    .update(JSON.stringify(req.body))
-    .digest("hex");
+// ---------------- WEBHOOK -----------------------
 
-  if (hash !== req.headers["x-paystack-signature"]) {
-    return res.status(401).send("Invalid signature");
-  }
-
-  const event = req.body.event;
-  const data = req.body.data;
+export const stripeWebhook = async (req: Request, res: Response) => {
+  const sig = req.headers["stripe-signature"]!;
+  let event: any;
 
   try {
-    switch (event) {
-      case "subscription.create":
-        console.log("Subscription created:", data);
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
+  } catch (err) {
+    console.error("⚠️ Webhook signature verification failed:", err);
+    return res.status(400).send(`Webhook Error: ${err}`);
+  }
+
+  try {
+    switch (event.type) {
+      case "customer.subscription.created":
+      case "customer.subscription.updated": {
+        const sub = event.data.object;
 
         await prisma.subscription.upsert({
-          where: { stripeSubscriptionId: data.subscription_code }, // reuse field
+          where: { stripeSubscriptionId: sub.id },
           update: {
-            schoolId: data.customer.metadata.schoolId,
-            planTier: data.plan.name,
-            status: data.status,
-            currentPeriodEnd: new Date(data.next_payment_date),
+            schoolId: sub.metadata.schoolId,
+            planTier: sub.items.data[0].price.nickname || "",
+            status: sub.status,
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
           },
           create: {
-            schoolId: data.customer.metadata.schoolId,
-            stripeSubscriptionId: data.subscription_code,
-            planTier: data.plan.name,
-            status: data.status,
-            currentPeriodEnd: new Date(data.next_payment_date),
-          },
-        });
-
-        break;
-
-      case "invoice.payment_succeeded":
-        await prisma.subscription.updateMany({
-          where: { stripeSubscriptionId: data.subscription.subscription_code },
-          data: {
-            status: "active",
-            currentPeriodEnd: new Date(data.subscription.next_payment_date),
+            schoolId: sub.metadata.schoolId,
+            stripeSubscriptionId: sub.id,
+            planTier: sub.items.data[0].price.nickname || "",
+            status: sub.status,
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
           },
         });
         break;
+      }
 
-      case "invoice.payment_failed":
+      case "customer.subscription.deleted": {
+        const sub = event.data.object;
         await prisma.subscription.updateMany({
-          where: { stripeSubscriptionId: data.subscription.subscription_code },
-          data: { status: "past_due" },
+          where: { stripeSubscriptionId: sub.id },
+          data: { status: "canceled" },
         });
         break;
-
-      case "subscription.disable":
-        await prisma.subscription.updateMany({
-          where: { stripeSubscriptionId: data.subscription_code },
-          data: { status: "cancelled" },
-        });
-        break;
+      }
     }
 
     return res.sendStatus(200);
   } catch (err) {
-    console.error("Webhook handling error:", err);
+    console.error("❌ Webhook handling error:", err);
     return res.sendStatus(500);
   }
 };
@@ -122,9 +113,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
     });
 
     if (!sub) {
-      return res
-        .status(404)
-        .json({ active: false, message: "No subscription found" });
+      return res.status(404).json({ active: false });
     }
 
     return res.status(200).json({
@@ -132,7 +121,6 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
       subscription: sub,
     });
   } catch (err) {
-    console.error("Error fetching subscription:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 };
