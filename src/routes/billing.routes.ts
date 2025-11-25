@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   createSubscriptionSession,
   stripeWebhook,
@@ -12,7 +12,7 @@ const router = Router();
 router.post(
   "/initialize",
   authenticate,
-  authorize("admin"),
+  authorize("ADMIN"),
   createSubscriptionSession
 );
 
