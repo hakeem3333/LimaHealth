@@ -16,12 +16,35 @@ enum SchoolStatus {
   SUSPENDED
 }
 
-enum Role {
-  ADMIN
-  COUNSELOR
-  TEACHER
-  STUDENT
+//
+// NEW RBAC MODELS
+//
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  permissions RolePermission[]
+  users       User[]
 }
+
+model Permission {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  id           String        @id @default(cuid())
+  roleId       String
+  permissionId String
+  role         Role          @relation(fields: [roleId], references: [id])
+  permission   Permission    @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+}
+
+//
+// EXISTING MODELS
+//
 
 model School {
   id                      String                   @id @default(uuid())
@@ -37,7 +60,6 @@ model School {
 
   bulkUploadLogs          BulkUploadLog[]          @relation("SchoolBulkUploads")
 
-  // form data after activation request
   activationData Json?
 }
 
@@ -56,7 +78,8 @@ model Subscription {
 model User {
   id           String     @id @default(uuid())
   schoolId     String
-  role         Role // ✅ Enum
+  roleId       String?       // ⭐ UPDATED: replaces enum Role
+  role         Role?         @relation(fields: [roleId], references: [id])
   adminOtps    AdminOtp[]
   firstName    String
   lastName     String
@@ -76,9 +99,6 @@ model User {
   consent           Consent?
 
   bulkUploadLogs    BulkUploadLog[]             @relation("AdminBulkUploads")
-
-  // ✅ Only one admin per school
- // @@unique([schoolId, role], name: "OneAdminPerSchool")
 }
 
 model BiometricLog {
