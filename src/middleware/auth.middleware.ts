@@ -10,18 +10,18 @@ export type AuthRequest = Request & {
   user?: {
     id: string;
     email: string;
-    role: string;
+    roleId: string;
+    roleName?: string;
     schoolId?: string;
+    permissions?: string[];
   };
 };
 
 // Zod schema to validate the Authorization header
 const authHeaderSchema = z.object({
-  authorization: z
-    .string()
-    .startsWith("Bearer ", {
-      message: "Authorization header must start with Bearer",
-    }),
+  authorization: z.string().startsWith("Bearer ", {
+    message: "Authorization header must start with Bearer",
+  }),
 });
 
 // Zod schema to validate JWT payload
@@ -54,10 +54,37 @@ export const authenticate = async (
       return res.status(401).json({ message: "Invalid token payload" });
     }
 
-    const user = await prisma.user.findUnique({ where: { id } });
+    // Fetch user with role and permissions
+    const user = await prisma.user.findUnique({
+      where: { id },
+      include: {
+        role: {
+          include: {
+            permissions: {
+              include: {
+                permission: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
     if (!user) return res.status(401).json({ message: "Invalid token" });
 
-    req.user = user;
+    // Flatten permissions array
+    const permissions =
+      user.role?.permissions?.map((rp) => rp.permission.name) || [];
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      roleId: user.roleId!,
+      roleName: user.role?.name,
+      schoolId: user.schoolId,
+      permissions,
+    };
+
     next();
   } catch (err) {
     console.error("Auth error:", err);
@@ -66,18 +93,27 @@ export const authenticate = async (
 };
 
 /**
- * Middleware for authorizing roles.
+ * Middleware for authorizing users by permissions.
+ * Example: authorize("manage_schools")
  */
 export const authorize =
-  (...allowedRoles: string[]) =>
+  (...requiredPermissions: string[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user)
       return res
         .status(401)
         .json({ message: "Unauthorized: User object missing" });
 
-    if (!allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ message: "Forbidden: insufficient role" });
+    const userPermissions = req.user.permissions || [];
+
+    const hasPermission = requiredPermissions.every((perm) =>
+      userPermissions.includes(perm)
+    );
+
+    if (!hasPermission) {
+      return res
+        .status(403)
+        .json({ message: "Forbidden: insufficient permissions" });
     }
 
     next();
