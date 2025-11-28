@@ -17,19 +17,23 @@ enum SchoolStatus {
 }
 
 //
-// NEW RBAC MODELS
+// NEW RBAC MODELS (UPDATED)
 //
 model Role {
   id          String           @id @default(cuid())
   name        String           @unique
   permissions RolePermission[]
   users       User[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 }
 
 model Permission {
-  id          String           @id @default(cuid())
-  name        String           @unique
-  roles       RolePermission[]
+  id        String           @id @default(cuid())
+  name      String           @unique
+  roles     RolePermission[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime        @updatedAt
 }
 
 model RolePermission {
@@ -38,6 +42,8 @@ model RolePermission {
   permissionId String
   role         Role          @relation(fields: [roleId], references: [id])
   permission   Permission    @relation(fields: [permissionId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@unique([roleId, permissionId])
 }
@@ -77,9 +83,10 @@ model Subscription {
 
 model User {
   id           String     @id @default(uuid())
-  schoolId     String?  // make optional
-  roleId       String?       // ⭐ UPDATED: replaces enum Role
-  role         Role?         @relation(fields: [roleId], references: [id])
+  schoolId     String?    // Optional for global users
+  roleId       String?
+  role         Role?      @relation(fields: [roleId], references: [id])
+  school       School?    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   adminOtps    AdminOtp[]
   firstName    String
   lastName     String
@@ -88,7 +95,6 @@ model User {
   isActive     Boolean    @default(true)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
-  school       School?     @relation(fields: [schoolId], references: [id])
 
   biometricLogs     BiometricLog[]
   moodLogs          MoodLog[]
@@ -99,6 +105,8 @@ model User {
   consent           Consent?
 
   bulkUploadLogs    BulkUploadLog[]             @relation("AdminBulkUploads")
+
+  @@index([schoolId]) // Index for faster queries by school
 }
 
 model BiometricLog {
@@ -161,7 +169,7 @@ model EmailVerificationToken {
   id        String   @id @default(uuid())
   token     String   @unique
   schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id])
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime
 }
@@ -169,7 +177,7 @@ model EmailVerificationToken {
 model AdminOtp {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   code      String
   expiresAt DateTime
   createdAt DateTime @default(now())
