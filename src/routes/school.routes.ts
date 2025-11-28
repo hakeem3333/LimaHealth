@@ -1,11 +1,12 @@
 import { Router } from "express";
 import {
-  // createSchool,
+  createSchool,
   getAllSchools,
   getSchoolById,
   updateSchool,
   deleteSchool,
 } from "../controllers/school.controller";
+import { authenticate, authorize } from "../middleware/auth.middleware";
 
 const router = Router();
 
@@ -23,27 +24,27 @@ const router = Router();
  * summary: Creates a new school.
  * tags: [Schools]
  * requestBody:
- * required: true
- * content:
- * application/json:
- * schema:
- * type: object
- * properties:
- * name:
- * type: string
- * address:
- * type: string
- * phone:
- * type: string
- * email:
- * type: string
+ *   required: true
+ *   content:
+ *     application/json:
+ *       schema:
+ *         type: object
+ *         properties:
+ *           name:
+ *             type: string
+ *           address:
+ *             type: string
+ *           phone:
+ *             type: string
+ *           email:
+ *             type: string
  * responses:
- * 201:
- * description: Successfully created a new school.
- * 400:
- * description: Invalid input.
+ *   201:
+ *     description: Successfully created a new school.
+ *   400:
+ *     description: Invalid input.
  */
-// router.post("/", createSchool);
+router.post("/", authenticate, authorize("manage_schools"), createSchool);
 
 /**
  * @swagger
@@ -52,10 +53,10 @@ const router = Router();
  * summary: Retrieves a list of all schools.
  * tags: [Schools]
  * responses:
- * 200:
- * description: A list of schools.
+ *   200:
+ *     description: A list of schools.
  */
-router.get("/", getAllSchools);
+router.get("/", authenticate, authorize("manage_schools"), getAllSchools);
 
 /**
  * @swagger
@@ -65,18 +66,18 @@ router.get("/", getAllSchools);
  * tags: [Schools]
  * parameters:
  * - in: path
- * name: id
- * required: true
- * schema:
- * type: string
- * description: The school's ID.
+ *   name: id
+ *   required: true
+ *   schema:
+ *     type: string
+ *   description: The school's ID.
  * responses:
- * 200:
- * description: A single school object.
- * 404:
- * description: School not found.
+ *   200:
+ *     description: A single school object.
+ *   404:
+ *     description: School not found.
  */
-router.get("/:id", getSchoolById);
+router.get("/:id", authenticate, authorize("manage_schools"), getSchoolById);
 
 /**
  * @swagger
@@ -86,35 +87,35 @@ router.get("/:id", getSchoolById);
  * tags: [Schools]
  * parameters:
  * - in: path
- * name: id
- * required: true
- * schema:
- * type: string
- * description: The school's ID.
+ *   name: id
+ *   required: true
+ *   schema:
+ *     type: string
+ *   description: The school's ID.
  * requestBody:
- * required: true
- * content:
- * application/json:
- * schema:
- * type: object
- * properties:
- * name:
- * type: string
- * address:
- * type: string
- * phone:
- * type: string
- * email:
- * type: string
+ *   required: true
+ *   content:
+ *     application/json:
+ *       schema:
+ *         type: object
+ *         properties:
+ *           name:
+ *             type: string
+ *           address:
+ *             type: string
+ *           phone:
+ *             type: string
+ *           email:
+ *             type: string
  * responses:
- * 200:
- * description: Successfully updated the school.
- * 404:
- * description: School not found.
- * 400:
- * description: Invalid input.
+ *   200:
+ *     description: Successfully updated the school.
+ *   404:
+ *     description: School not found.
+ *   400:
+ *     description: Invalid input.
  */
-router.put("/:id", updateSchool);
+router.put("/:id", authenticate, authorize("manage_schools"), updateSchool);
 
 /**
  * @swagger
@@ -124,17 +125,17 @@ router.put("/:id", updateSchool);
  * tags: [Schools]
  * parameters:
  * - in: path
- * name: id
- * required: true
- * schema:
- * type: string
- * description: The school's ID.
+ *   name: id
+ *   required: true
+ *   schema:
+ *     type: string
+ *   description: The school's ID.
  * responses:
- * 204:
- * description: School successfully deleted.
- * 404:
- * description: School not found.
+ *   204:
+ *     description: School successfully deleted.
+ *   404:
+ *     description: School not found.
  */
-router.delete("/:id", deleteSchool);
+router.delete("/:id", authenticate, authorize("manage_schools"), deleteSchool);
 
 export default router;

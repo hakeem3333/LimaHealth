@@ -10,28 +10,35 @@ export type AuthRequest = Request & {
   user?: {
     id: string;
     email: string;
-    role: string;
-    schoolId?: string;
+    roleId: string | null;
+    roleName?: string | null;
+    schoolId?: string | null;
+    permissions?: string[];
   };
 };
 
-// Zod schema to validate the Authorization header
+// Authorization header validator
 const authHeaderSchema = z.object({
   authorization: z
     .string()
     .startsWith("Bearer ", {
       message: "Authorization header must start with Bearer",
-    }),
+    })
+    .optional(),
 });
 
-// Zod schema to validate JWT payload
-const jwtPayloadSchema = z.object({
-  userId: z.string().optional(),
-  id: z.string().optional(),
-});
+// JWT payload validator (ensure at least one id exists)
+const jwtPayloadSchema = z
+  .object({
+    userId: z.string().optional(),
+    id: z.string().optional(),
+  })
+  .refine((payload) => payload.userId || payload.id, {
+    message: "Token must contain userId or id",
+  });
 
 /**
- * Middleware for authenticating users via JWT token in the Authorization header.
+ * Authentication Middleware — validates JWT and loads user info + permissions.
  */
 export const authenticate = async (
   req: AuthRequest,
@@ -39,45 +46,96 @@ export const authenticate = async (
   next: NextFunction
 ) => {
   try {
-    // Validate headers
+    // Validate header format
     authHeaderSchema.parse(req.headers);
 
-    const token = req.headers.authorization!.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
-
-    // Validate JWT payload
-    const payload = jwtPayloadSchema.parse(decoded);
-
-    const id = payload.userId || payload.id;
-    if (!id) {
-      console.error("JWT missing userId/id:", decoded);
-      return res.status(401).json({ message: "Invalid token payload" });
+    if (!req.headers.authorization) {
+      return res.status(401).json({ message: "Missing Authorization header" });
     }
 
-    const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) return res.status(401).json({ message: "Invalid token" });
+    const token = req.headers.authorization.split(" ")[1];
 
-    req.user = user;
+    if (!process.env.JWT_SECRET) {
+      throw new Error("JWT_SECRET is not set");
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Validate JWT structure
+    const payload = jwtPayloadSchema.parse(decoded);
+    const id = payload.userId || payload.id;
+
+    // Load user with optimized permission select
+    const user = await prisma.user.findUnique({
+      where: { id },
+      include: {
+        role: {
+          include: {
+            permissions: {
+              include: {
+                permission: {
+                  select: { name: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
+
+    // Ensure user has a role
+    if (!user.roleId || !user.role) {
+      return res.status(403).json({ message: "User has no assigned role" });
+    }
+
+    const permissions =
+      user.role.permissions.map((rp) => rp.permission.name) || [];
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      roleId: user.roleId,
+      roleName: user.role.name,
+      schoolId: user.schoolId,
+      permissions,
+    };
+
     next();
   } catch (err) {
-    console.error("Auth error:", err);
+    console.error("Auth error:", (err as any).message);
     return res.status(401).json({ message: "Unauthorized" });
   }
 };
 
 /**
- * Middleware for authorizing roles.
+ * Authorization Middleware — checks for required permissions.
+ * Example: authorize("manage_schools")
  */
 export const authorize =
-  (...allowedRoles: string[]) =>
+  (...requiredPermissions: string[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user)
+    if (!req.user) {
       return res
         .status(401)
-        .json({ message: "Unauthorized: User object missing" });
+        .json({ message: "Unauthorized: User not authenticated" });
+    }
 
-    if (!allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ message: "Forbidden: insufficient role" });
+    const userPermissions = req.user.permissions || [];
+
+    // User must have *at least one* of the permissions
+    const hasPermission = requiredPermissions.some((perm) =>
+      userPermissions.includes(perm)
+    );
+
+    if (!hasPermission) {
+      return res.status(403).json({
+        message:
+          "Forbidden: You do not have permission to access this resource",
+      });
     }
 
     next();
