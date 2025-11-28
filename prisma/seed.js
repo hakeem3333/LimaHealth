@@ -2,14 +2,29 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 
-dotenv.config(); // Load .env variables
+dotenv.config();
 
 const prisma = new PrismaClient();
 
-async function main() {
-  console.log("🌱 Seeding roles & permissions...");
+async function safeHash(password) {
+  return bcrypt.hash(password, 10);
+}
 
-  const permissions = [
+async function main() {
+  console.log("🌱 Starting optimized RBAC seed...");
+
+  // Validate env early
+  const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").trim();
+  const SUPER_ADMIN_PASSWORD = (process.env.SUPER_ADMIN_PASSWORD || "").trim();
+
+  if (!SUPER_ADMIN_EMAIL || !SUPER_ADMIN_PASSWORD) {
+    throw new Error(
+      "Missing SUPER_ADMIN_EMAIL or SUPER_ADMIN_PASSWORD in .env (they must be set)"
+    );
+  }
+
+  // ---- Permissions ----
+  const permissionsList = [
     "manage_schools",
     "manage_admins",
     "manage_counselors",
@@ -22,19 +37,25 @@ async function main() {
     "bulk_upload",
   ];
 
-  // Create permissions
-  for (const perm of permissions) {
-    await prisma.permission.upsert({
-      where: { name: perm },
-      update: {},
-      create: { name: perm },
-    });
-  }
+  // Use createMany for bulk insert + skip duplicates (faster)
+  await prisma.permission.createMany({
+    data: permissionsList.map((name) => ({ name })),
+    skipDuplicates: true,
+  });
+  console.log(`✅ Permissions upserted (${permissionsList.length})`);
 
-  const allPermissions = await prisma.permission.findMany();
+  // Fetch fresh permissions (id + name)
+  const allPermissions = await prisma.permission.findMany({
+    select: { id: true, name: true },
+  });
+  const permByName = Object.fromEntries(
+    allPermissions.map((p) => [p.name, p.id])
+  );
 
-  const roles = [
-    { name: "SUPER_ADMIN", permissionNames: permissions },
+  // ---- Roles ----
+  const rolesDefinition = [
+    // SUPER_ADMIN will be assigned all permissions programmatically below (Option A)
+    { name: "SUPER_ADMIN", permissionNames: [] }, // placeholder
     {
       name: "SCHOOL_ADMIN",
       permissionNames: [
@@ -59,73 +80,90 @@ async function main() {
     { name: "PARENT", permissionNames: ["view_mood_logs"] },
   ];
 
-  const roleMap = {};
-
-  for (const role of roles) {
-    const createdRole = await prisma.role.upsert({
-      where: { name: role.name },
+  // Upsert roles in parallel
+  const upsertRolePromises = rolesDefinition.map((r) =>
+    prisma.role.upsert({
+      where: { name: r.name },
       update: {},
-      create: { name: role.name },
-    });
+      create: { name: r.name },
+      select: { id: true, name: true },
+    })
+  );
 
-    roleMap[role.name] = createdRole;
+  const upsertedRoles = await Promise.all(upsertRolePromises);
+  const roleByName = Object.fromEntries(
+    upsertedRoles.map((r) => [r.name, r.id])
+  );
+  console.log(`✅ Roles upserted (${upsertedRoles.length})`);
 
-    for (const permName of role.permissionNames) {
-      const perm = allPermissions.find((p) => p.name === permName);
-      if (!perm) continue;
+  // ---- RolePermission mappings (bulk) ----
+  // Build mapping rows: SUPER_ADMIN gets ALL permissions (option A)
+  const rows = [];
 
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: createdRole.id,
-            permissionId: perm.id,
-          },
-        },
-        update: {},
-        create: {
-          roleId: createdRole.id,
-          permissionId: perm.id,
-        },
-      });
+  for (const roleDef of rolesDefinition) {
+    const roleId = roleByName[roleDef.name];
+    let permsForRole = roleDef.permissionNames.slice();
+
+    if (roleDef.name === "SUPER_ADMIN") {
+      // assign all permissions present in DB
+      permsForRole = allPermissions.map((p) => p.name);
+    }
+
+    for (const permName of permsForRole) {
+      const permissionId = permByName[permName];
+      if (!permissionId) {
+        console.warn(`⚠️ Permission "${permName}" not found, skipping`);
+        continue;
+      }
+      rows.push({ roleId, permissionId });
     }
   }
 
-  console.log("🌱 RBAC seeding completed!");
-
-  // ------------------------------
-  // Create default SUPER_ADMIN user (env-based)
-  // ------------------------------
-  const defaultSuperAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-  const defaultSuperAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
-
-  if (!defaultSuperAdminEmail || !defaultSuperAdminPassword) {
-    throw new Error(
-      "❌ SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD must be set in .env"
-    );
+  if (rows.length > 0) {
+    // createMany supports skipDuplicates to avoid unique constraint errors
+    await prisma.rolePermission.createMany({
+      data: rows,
+      skipDuplicates: true,
+    });
+    console.log(`✅ RolePermission mappings created (${rows.length})`);
+  } else {
+    console.log("ℹ️ No role-permission mappings to create");
   }
 
-  const hashedPassword = await bcrypt.hash(defaultSuperAdminPassword, 10);
+  // ---- Create default SUPER_ADMIN user ----
+  const hashedPassword = await safeHash(SUPER_ADMIN_PASSWORD);
 
+  // Upsert user (schoolId omitted for global user)
   const superAdmin = await prisma.user.upsert({
-    where: { email: defaultSuperAdminEmail },
-    update: {},
-    create: {
-      schoolId: null, // Leave empty if global user
+    where: { email: SUPER_ADMIN_EMAIL },
+    update: {
       firstName: "Super",
       lastName: "Admin",
-      email: defaultSuperAdminEmail,
+      isActive: true,
+      roleId: roleByName["SUPER_ADMIN"],
+      // do not update password unless you explicitly want to; update here is empty
+    },
+    create: {
+      firstName: "Super",
+      lastName: "Admin",
+      email: SUPER_ADMIN_EMAIL,
       passwordHash: hashedPassword,
       isActive: true,
-      roleId: roleMap["SUPER_ADMIN"].id,
+      roleId: roleByName["SUPER_ADMIN"],
+      schoolId: null,
     },
   });
 
-  console.log(`✨ Default SUPER_ADMIN user created: ${superAdmin.email}`);
+  console.log(`✨ Default SUPER_ADMIN ensured: ${superAdmin.email}`);
+
+  console.log("🌱 Seed finished successfully.");
 }
 
+// Run
 main()
   .catch((err) => {
-    console.error("❌ Seed failed", err);
+    console.error("❌ Seed failed:", err.message || err);
+    if (err.stack) console.error(err.stack);
     process.exit(1);
   })
   .finally(async () => {
