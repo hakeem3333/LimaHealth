@@ -1,10 +1,9 @@
-import { Request, Response } from "express";
-import prisma from "../services/prisma.service";
-import { sendMail } from "../lib/mailer";
+import type { Request, Response } from "express";
+import prisma from "../../../services/prisma.service.js";
+import { sendPasswordResetEmail } from "../../../services/email.service.js";
 import crypto from "crypto";
-import { hashPassword } from "../utils/hash";
 
-export const forgotPassword = async (req, res) => {
+export const forgotPassword = async (req: Request, res: Response) => {
   const { email } = req.body;
 
   const user = await prisma.user.findUnique({ where: { email } });
@@ -26,15 +25,9 @@ export const forgotPassword = async (req, res) => {
     },
   });
 
-  const resetLink = `https://yourfrontend.com/reset-password/${token}`;
+  await sendPasswordResetEmail(user.email, token);
 
-  await sendMail(
-    user.email,
-    "Password Reset",
-    `Click to reset your password: ${resetLink}`
-  );
-
-  res.json({
+  return res.json({
     message: "If this email exists, a reset link will be sent",
   });
 };
