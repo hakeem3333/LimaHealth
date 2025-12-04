@@ -1,8 +1,0 @@
-model EmailVerificationToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id])
-  createdAt DateTime @default(now())
-  expiresAt DateTime @default(now() + interval 3 hour)
-}

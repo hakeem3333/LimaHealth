@@ -9,6 +9,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//
+// ================================
+// ENUMS
+// ================================
 enum SchoolStatus {
   PENDING_EMAIL_VERIFICATION
   PENDING_ACTIVATION
@@ -17,8 +21,9 @@ enum SchoolStatus {
 }
 
 //
-// NEW RBAC MODELS (UPDATED)
-//
+// ================================
+// FULL RBAC MODELS
+// ================================
 model Role {
   id          String           @id @default(cuid())
   name        String           @unique
@@ -33,15 +38,17 @@ model Permission {
   name      String           @unique
   roles     RolePermission[]
   createdAt DateTime         @default(now())
-  updatedAt DateTime        @updatedAt
+  updatedAt DateTime         @updatedAt
 }
 
 model RolePermission {
   id           String        @id @default(cuid())
   roleId       String
   permissionId String
+
   role         Role          @relation(fields: [roleId], references: [id])
   permission   Permission    @relation(fields: [permissionId], references: [id])
+
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -49,9 +56,9 @@ model RolePermission {
 }
 
 //
-// EXISTING MODELS
-//
-
+// ================================
+// MAIN SCHOOL + USER SYSTEM
+// ================================
 model School {
   id                      String                   @id @default(uuid())
   name                    String                   @unique
@@ -60,13 +67,14 @@ model School {
   status                  SchoolStatus             @default(PENDING_EMAIL_VERIFICATION)
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
+
   users                   User[]
   subscriptions           Subscription[]
   emailVerificationTokens EmailVerificationToken[]
 
   bulkUploadLogs          BulkUploadLog[]          @relation("SchoolBulkUploads")
 
-  activationData Json?
+  activationData          Json?
 }
 
 model Subscription {
@@ -78,16 +86,14 @@ model Subscription {
   currentPeriodEnd     DateTime
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+
   school               School   @relation(fields: [schoolId], references: [id])
 }
 
 model User {
   id           String     @id @default(uuid())
-  schoolId     String?    // Optional for global users
+  schoolId     String?
   roleId       String?
-  role         Role?      @relation(fields: [roleId], references: [id])
-  school       School?    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  adminOtps    AdminOtp[]
   firstName    String
   lastName     String
   email        String     @unique
@@ -96,6 +102,10 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
+  // Relations
+  role         Role?      @relation(fields: [roleId], references: [id])
+  school       School?    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  adminOtps    AdminOtp[]
   biometricLogs     BiometricLog[]
   moodLogs          MoodLog[]
   alertsAsStudent   Alert[]                     @relation("AlertsAsStudent")
@@ -106,9 +116,16 @@ model User {
 
   bulkUploadLogs    BulkUploadLog[]             @relation("AdminBulkUploads")
 
-  @@index([schoolId]) // Index for faster queries by school
+  refreshTokens RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@index([schoolId])
 }
 
+//
+// ================================
+// LOG MODELS
+// ================================
 model BiometricLog {
   id               String   @id @default(uuid())
   userId           String
@@ -119,7 +136,8 @@ model BiometricLog {
   movement         Float
   stressLevelScore Float
   createdAt        DateTime @default(now())
-  user             User     @relation(fields: [userId], references: [id])
+
+  user User @relation(fields: [userId], references: [id])
 }
 
 model MoodLog {
@@ -129,7 +147,8 @@ model MoodLog {
   moodEmoji String
   notes     String?
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+
+  user User @relation(fields: [userId], references: [id])
 }
 
 model Alert {
@@ -142,15 +161,17 @@ model Alert {
   isResolved  Boolean  @default(false)
   notes       String?
   createdAt   DateTime @default(now())
-  student     User     @relation("AlertsAsStudent", fields: [studentId], references: [id])
-  counselor   User     @relation("AlertsAsCounselor", fields: [counselorId], references: [id])
+
+  student   User @relation("AlertsAsStudent", fields: [studentId], references: [id])
+  counselor User @relation("AlertsAsCounselor", fields: [counselorId], references: [id])
 }
 
 model ParentStudentRelationship {
   parentId  String
   studentId String
-  parent    User   @relation("ParentToStudent", fields: [parentId], references: [id])
-  student   User   @relation("StudentToParent", fields: [studentId], references: [id])
+
+  parent  User @relation("ParentToStudent", fields: [parentId], references: [id])
+  student User @relation("StudentToParent", fields: [studentId], references: [id])
 
   @@id([parentId, studentId])
 }
@@ -162,27 +183,46 @@ model Consent {
   anonymizeData        Boolean  @default(false)
   parentalConsentGiven Boolean  @default(false)
   createdAt            DateTime @default(now())
-  user                 User     @relation(fields: [userId], references: [id])
+
+  user User @relation(fields: [userId], references: [id])
 }
 
+//
+// ================================
+// EMAIL VERIFICATION
+// ================================
 model EmailVerificationToken {
   id        String   @id @default(uuid())
   token     String   @unique
   schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
 }
 
+//
+// ================================
+// ADMIN OTP (2FA)
+// ================================
 model AdminOtp {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   code      String
   expiresAt DateTime
+  used      Boolean  @default(false)
+  usedAt    DateTime?
   createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
+//
+// ================================
+// BULK UPLOAD LOG
+// ================================
 model BulkUploadLog {
   id           String   @id @default(uuid())
   adminId      String
@@ -194,4 +234,40 @@ model BulkUploadLog {
 
   admin  User   @relation("AdminBulkUploads", fields: [adminId], references: [id])
   school School @relation("SchoolBulkUploads", fields: [schoolId], references: [id])
+}
+
+//
+// ================================
+// REFRESH TOKENS (ROTATING)
+// ================================
+model RefreshToken {
+  id         String   @id @default(uuid())
+  userId     String
+  token      String   @unique
+  expiresAt  DateTime
+  revoked    Boolean  @default(false)
+  revokedAt  DateTime?
+  replacedBy String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+//
+// ================================
+// PASSWORD RESET TOKENS
+// ================================
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  used      Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

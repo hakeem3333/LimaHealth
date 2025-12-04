@@ -4,7 +4,7 @@ import {
   addCounsellor,
   addTeacher,
   addStudent,
-} from "../controllers/admin/setupAdmin.controller";
+} from "../auth/admin/setupAdmin.controller";
 
 const router = express.Router();
 
