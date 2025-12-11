@@ -12,7 +12,7 @@ import {
 } from "../controllers/admin/bulkUpload.controller";
 
 import { login, loginSchema } from "../controllers/user/auth/login.controller";
-import validate from "../middleware/auth.middleware";
+import validate from "../middleware/validate.middleware";
 
 const router = Router();
 

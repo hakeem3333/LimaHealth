@@ -95,14 +95,19 @@ export const login = async (req: Request, res: Response) => {
     }
 
     // Verify password
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
+  //  Log all users (for debugging)
+    const users = await prisma.user.findMany({
+      select: { email: true, role: { select: { name: true } } },
+    });
+    console.log(users);
 
     // Only allow counsellor, student, parent to login
-    const allowedRoles = ["COUNSELLOR", "STUDENT", "PARENT"];
-    if (!allowedRoles.includes(user.role?.name ?? "")) {
+    const allowedRoles = ["COUNSELOR", "USER", "PARENT"];
+    if (!allowedRoles.includes(user.role?.name || "")) {
       return res.status(403).json({
         message: "Account type not allowed to login here",
       });
