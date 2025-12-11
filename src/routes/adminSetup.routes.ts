@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticate, authorize } from "../middleware/auth.middleware";
+import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 import {
   addCounsellor,
   addTeacher,
@@ -8,9 +8,13 @@ import {
 
 const router = express.Router();
 
-// All routes require ADMIN auth
-router.post("/counsellors", authenticate, authorize("ADMIN"), addCounsellor);
-router.post("/teachers", authenticate, authorize("ADMIN"), addTeacher);
-router.post("/students", authenticate, authorize("ADMIN"), addStudent);
+router.post(
+  "/counsellors",
+  authenticate,
+  authorizeRole("ADMIN"),
+  addCounsellor
+);
+router.post("/teachers", authenticate, authorizeRole("ADMIN"), addTeacher);
+router.post("/students", authenticate, authorizeRole("ADMIN"), addStudent);
 
 export default router;
