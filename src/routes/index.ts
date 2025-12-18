@@ -13,12 +13,14 @@ import fitbitRoutes from './fitbit.routes'; //
 import counselorRoutes from "./counselor.routes";
 import adminSetupRoutes from "./adminSetup.routes";
 import billingRoutes from "./billing.routes";
+import schoolAdminDashboardRoutes from "./school-admin/dashboard.routes";
 
 const router = Router();
 
 // Define all top-level API routes
 router.use("/schools", schoolRoutes);
 router.use("/auth", authRoutes);
+router.use("/school", schoolAdminDashboardRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/roles", roleRoutes);
 router.use("/users", userRoutes);
