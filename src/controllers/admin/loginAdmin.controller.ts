@@ -40,7 +40,7 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       include: { role: true },
     });
 
-    if (!user || user.role?.name !== "ADMIN") {
+    if (!user || !["ADMIN", "SUPER_ADMIN"].includes(user.role?.name || "")) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
