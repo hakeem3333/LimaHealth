@@ -16,6 +16,8 @@ import billingRoutes from "./billing.routes";
 import schoolAdminDashboardRoutes from "./school-admin/dashboard.routes";
 import schoolAdminStudentRoutes from "./school-admin/students.routes";
 import schoolAdminCounselorRoutes from "./school-admin/counselors.routes";
+import schoolAdminAlertRoutes from "./school-admin/alerts.routes";
+
 
 const router = Router();
 
@@ -25,6 +27,7 @@ router.use("/auth", authRoutes);
 router.use("/school", schoolAdminDashboardRoutes);
 router.use("/school", schoolAdminStudentRoutes);
 router.use("/school", schoolAdminCounselorRoutes);
+router.use("/school", schoolAdminAlertRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/roles", roleRoutes);
 router.use("/users", userRoutes);
