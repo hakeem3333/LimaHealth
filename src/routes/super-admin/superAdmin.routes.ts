@@ -11,6 +11,12 @@ import { getSuperAdminDashboard } from "../../super-super-admin/controllers/supe
 import { getSuperAdminReports } from "../../super-admin/controllers/superAdminReports.controller";
 import { getAllSchools } from "../../super-admin/controllers/superAdminSchools.controller";
 
+import {
+  getSchoolAdmins,
+  assignAdminToSchool,
+  removeAdminFromSchool,
+} from "../../super-admin/controllers/superAdminSchoolAdmins.controller";
+
 const router = Router();
 
 router.use(authenticate);
@@ -27,5 +33,11 @@ router.get("/dashboard", getSuperAdminDashboard);
 router.get("/reports", getSuperAdminReports);
 
 router.get("/schools", getAllSchools);
+
+router.get("/schools/:schoolId/admins", getSchoolAdmins);
+
+router.post("/schools/:schoolId/admins", assignAdminToSchool);
+
+router.delete("/schools/:schoolId/admins/:adminId", removeAdminFromSchool);
 
 export default router;
