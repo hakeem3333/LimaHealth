@@ -7,6 +7,7 @@ import {
 } from "../../controllers/super-admin/superAdminAdmins.controller";
 
 import { getAuditLogs } from "../../super-admin/controllers/auditLogs.controller";
+import { getSuperAdminDashboard } from "../../super-super-admin/controllers/superAdminDashboard.controller";
 
 const router = Router();
 
@@ -18,5 +19,7 @@ router.post("/admins/:id/reset-password", resetAdminPassword);
 router.patch("/admins/:id/deactivate", deactivateAdmin);
 
 router.get("/audit-logs", getAuditLogs);
+
+router.get("/dashboard", getSuperAdminDashboard);
 
 export default router;
