@@ -21,6 +21,7 @@ import schoolAdminProfileRoutes from "./school-admin/admin.routes";
 import schoolReportsRoutes from "./school-admin/schoolReports.routes";
 import schoolAdminSettingsRoutes from "./school-admin/schoolSettings.routes.js";
 import schoolAdminWearablesRoutes from "./school-admin/wearables.controller";
+import superAdminRoutes from "./super-admin/superAdmin.routes";
 
 
 const router = Router();
@@ -36,6 +37,8 @@ router.use("/school", schoolAdminProfileRoutes);
 router.use("/school", schoolReportsRoutes);
 router.use("/school", schoolAdminSettingsRoutes);
 router.use("/school", schoolAdminWearablesRoutes);
+router.use("/super-admin", superAdminRoutes);
+
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/roles", roleRoutes);
 router.use("/users", userRoutes);
