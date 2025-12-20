@@ -20,6 +20,10 @@ import {
   assignAdminToSchool,
   removeAdminFromSchool,
 } from "../../super-admin/controllers/superAdminSchoolAdmins.controller";
+import { 
+    getPlatformSettings, 
+    updatePlatformSettings 
+} from "../../super-admin/controllers/superAdminSettings.controller";
 
 const router = Router();
 
@@ -45,5 +49,9 @@ router.get("/schools/:schoolId/admins", getSchoolAdmins);
 router.post("/schools/:schoolId/admins", assignAdminToSchool);
 
 router.delete("/schools/:schoolId/admins/:adminId", removeAdminFromSchool);
+
+
+router.get("/settings", getPlatformSettings);
+router.put("/settings", updatePlatformSettings);
 
 export default router;

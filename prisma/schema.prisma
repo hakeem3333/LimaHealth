@@ -212,3 +212,27 @@ model AuditLog {
   @@index([actorRole])
   @@index([createdAt])
 }
+
+model PlatformSettings {
+  id String @id @default("global")
+
+  // 🏫 School lifecycle
+  allowSchoolSignup        Boolean @default(true)
+  defaultSchoolStatus      SchoolStatus @default(PENDING_EMAIL_VERIFICATION)
+  requireEmailVerification Boolean @default(true)
+
+  // 🔐 Security
+  adminOtpExpiryMinutes    Int     @default(10)
+  enforceAuditLogging      Boolean @default(true)
+
+  // 📡 Platform features
+  enableWearables          Boolean @default(true)
+  enableAlerts             Boolean @default(true)
+
+  // 📦 Data & compliance
+  dataRetentionMonths      Int     @default(12)
+  enforceAnonymization     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
