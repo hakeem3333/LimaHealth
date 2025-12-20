@@ -195,3 +195,20 @@ model BulkUploadLog {
   admin  User   @relation("AdminBulkUploads", fields: [adminId], references: [id])
   school School @relation("SchoolBulkUploads", fields: [schoolId], references: [id])
 }
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actorRole  String
+  action     String
+  targetType String?
+  targetId   String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  actor User @relation(fields: [actorId], references: [id])
+
+  @@index([action])
+  @@index([actorRole])
+  @@index([createdAt])
+}
