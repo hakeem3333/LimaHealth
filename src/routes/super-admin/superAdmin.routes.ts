@@ -9,6 +9,7 @@ import {
 import { getAuditLogs } from "../../super-admin/controllers/auditLogs.controller";
 import { getSuperAdminDashboard } from "../../super-super-admin/controllers/superAdminDashboard.controller";
 import { getSuperAdminReports } from "../../super-admin/controllers/superAdminReports.controller";
+import { getAllSchools } from "../../super-admin/controllers/superAdminSchools.controller";
 
 const router = Router();
 
@@ -24,5 +25,7 @@ router.get("/audit-logs", getAuditLogs);
 router.get("/dashboard", getSuperAdminDashboard);
 
 router.get("/reports", getSuperAdminReports);
+
+router.get("/schools", getAllSchools);
 
 export default router;
