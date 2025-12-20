@@ -9,7 +9,11 @@ import {
 import { getAuditLogs } from "../../super-admin/controllers/auditLogs.controller";
 import { getSuperAdminDashboard } from "../../super-super-admin/controllers/superAdminDashboard.controller";
 import { getSuperAdminReports } from "../../super-admin/controllers/superAdminReports.controller";
-import { getAllSchools } from "../../super-admin/controllers/superAdminSchools.controller";
+import {
+  getAllSchools,
+  getSchoolById,
+  updateSchool,
+} from "../../super-admin/controllers/superAdminSchools.controller";
 
 import {
   getSchoolAdmins,
@@ -33,6 +37,8 @@ router.get("/dashboard", getSuperAdminDashboard);
 router.get("/reports", getSuperAdminReports);
 
 router.get("/schools", getAllSchools);
+router.get("/schools/:schoolId", getSchoolById);
+router.put("/schools/:schoolId", updateSchool);
 
 router.get("/schools/:schoolId/admins", getSchoolAdmins);
 
