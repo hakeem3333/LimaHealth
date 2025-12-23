@@ -1,28 +1,46 @@
-import type { Response } from "express";
+import { Response } from "express";
+import { z } from "zod";
 import prisma from "../../services/prisma.service";
 import { AuthRequest } from "../../middleware/auth.middleware";
 
-export const listCounselors = async (req: AuthRequest, res: Response) => {
-  const schoolId = req.user?.schoolId;
-  const { search } = req.query as { search?: string };
+// Query schema for listCounselors
+const listCounselorsQuerySchema = z.object({
+  search: z.string().optional(),
+  page: z.string().regex(/^\d+$/).optional(),
+  limit: z.string().regex(/^\d+$/).optional(),
+});
 
-  if (!schoolId) {
+export const listCounselors = async (req: AuthRequest, res: Response) => {
+  if (!req.user?.schoolId) {
     return res.status(403).json({ message: "School access required" });
   }
 
+  const parsedQuery = listCounselorsQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) {
+    return res.status(400).json({
+      message: "Invalid query parameters",
+      errors: parsedQuery.error.flatten(),
+    });
+  }
+
+  const { search, page = "1", limit = "50" } = parsedQuery.data;
+  const pageNumber = Number(page);
+  const limitNumber = Number(limit);
+
   try {
-    // Find counselors in this school
     const counselors = await prisma.user.findMany({
       where: {
-        schoolId,
+        schoolId: req.user.schoolId,
         role: { name: "COUNSELOR" },
-        OR: search
-          ? [
-              { firstName: { contains: search, mode: "insensitive" } },
-              { lastName: { contains: search, mode: "insensitive" } },
-              { email: { contains: search, mode: "insensitive" } },
-            ]
-          : undefined,
+        ...(search
+          ? {
+              OR: [
+                { firstName: { contains: search, mode: "insensitive" } },
+                { lastName: { contains: search, mode: "insensitive" } },
+                { email: { contains: search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -31,10 +49,13 @@ export const listCounselors = async (req: AuthRequest, res: Response) => {
         email: true,
         isActive: true,
         alertsAsCounselor: {
-          select: { id: true },
+          select: { studentId: true },
+          distinct: ["studentId"],
         },
       },
       orderBy: { firstName: "asc" },
+      take: limitNumber,
+      skip: (pageNumber - 1) * limitNumber,
     });
 
     const data = counselors.map((c) => ({
@@ -42,31 +63,43 @@ export const listCounselors = async (req: AuthRequest, res: Response) => {
       name: `${c.firstName} ${c.lastName}`,
       email: c.email,
       isActive: c.isActive,
-      studentsCount: c.alertsAsCounselor.length, // number of students assigned via alerts
+      studentsCount: c.alertsAsCounselor.length,
     }));
 
-    res.json(data);
+    res
+      .status(200)
+      .json({ counselors: data, page: pageNumber, limit: limitNumber });
   } catch (error) {
     console.error("List counselors error:", error);
     res.status(500).json({ message: "Failed to fetch counselors" });
   }
 };
 
+// Query schema for getCounselorProfile
+const counselorParamsSchema = z.object({
+  counselorId: z.string().uuid(),
+});
 
 export const getCounselorProfile = async (req: AuthRequest, res: Response) => {
-  const schoolId = req.user?.schoolId;
-  const counselorId = req.params.counselorId;
-
-  if (!schoolId) {
+  if (!req.user?.schoolId) {
     return res.status(403).json({ message: "School access required" });
   }
 
+  const parsedParams = counselorParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) {
+    return res.status(400).json({
+      message: "Invalid counselor ID",
+      errors: parsedParams.error.flatten(),
+    });
+  }
+
+  const { counselorId } = parsedParams.data;
+
   try {
-    // Fetch counselor with assigned students
     const counselor = await prisma.user.findFirst({
       where: {
         id: counselorId,
-        schoolId,
+        schoolId: req.user.schoolId,
         role: { name: "COUNSELOR" },
       },
       select: {
@@ -77,10 +110,7 @@ export const getCounselorProfile = async (req: AuthRequest, res: Response) => {
         isActive: true,
         alertsAsCounselor: {
           where: { isResolved: false },
-          select: { id: true },
-        },
-        alertsAsStudent: {
-          select: { id: true, alertType: true, createdAt: true, message: true },
+          select: { id: true, createdAt: true, studentId: true },
         },
         studentOf: {
           select: {
@@ -90,6 +120,15 @@ export const getCounselorProfile = async (req: AuthRequest, res: Response) => {
                 firstName: true,
                 lastName: true,
                 isActive: true,
+                alertsAsStudent: {
+                  select: {
+                    alertType: true,
+                    isResolved: true,
+                    createdAt: true,
+                  },
+                  orderBy: { createdAt: "desc" },
+                  take: 1,
+                },
                 biometricLogs: {
                   select: { timestamp: true },
                   orderBy: { timestamp: "desc" },
@@ -100,9 +139,6 @@ export const getCounselorProfile = async (req: AuthRequest, res: Response) => {
                   orderBy: { timestamp: "desc" },
                   take: 1,
                 },
-                alertsAsStudent: {
-                  select: { alertType: true, isResolved: true },
-                },
               },
             },
           },
@@ -110,16 +146,16 @@ export const getCounselorProfile = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    if (!counselor)
+    if (!counselor) {
       return res.status(404).json({ message: "Counselor not found" });
+    }
 
     // Map students
     const students = counselor.studentOf.map(({ student }) => {
-      const latestAlert = student.alertsAsStudent.slice(-1)[0];
-      const riskLevel = latestAlert
-        ? latestAlert.alertType.toUpperCase()
-        : "LOW"; // Example
+      const latestAlert = student.alertsAsStudent[0];
+      const riskLevel = latestAlert?.alertType.toUpperCase() ?? "LOW";
       const wearableConnected = student.biometricLogs.length > 0;
+
       return {
         id: student.id,
         name: `${student.firstName} ${student.lastName}`,
@@ -128,21 +164,33 @@ export const getCounselorProfile = async (req: AuthRequest, res: Response) => {
       };
     });
 
-    // Determine last activity (latest timestamp from alerts, biometricLogs, moodLogs)
-    const allTimestamps = [
-      ...counselor.alertsAsCounselor.map((a) => a.id), // Could store timestamps if needed
+    // Determine last activity timestamp
+    const lastActivityTimestamps = [
+      ...counselor.alertsAsCounselor.map((a) => a.createdAt),
+      ...counselor.studentOf.flatMap(({ student }) => [
+        ...(student.biometricLogs.map((b) => b.timestamp) ?? []),
+        ...(student.moodLogs.map((m) => m.timestamp) ?? []),
+        ...(student.alertsAsStudent.map((a) => a.createdAt) ?? []),
+      ]),
     ];
-    const lastActivity = allTimestamps.length ? new Date().toISOString() : null; // Simplified
+    const lastActivity =
+      lastActivityTimestamps.length > 0
+        ? new Date(
+            Math.max(
+              ...lastActivityTimestamps.map((d) => new Date(d).getTime())
+            )
+          ).toISOString()
+        : null;
 
-    // Mock interventions from alertsAsCounselor
-    const interventions = counselor.alertsAsCounselor.map((a) => ({
+    // Map interventions (simplified placeholder using alertsAsCounselor)
+    const interventions = counselor.alertsAsCounselor.map((a, index) => ({
       id: a.id,
-      studentName: students[0]?.name ?? "Student",
-      note: "Follow up required", // Simplified placeholder
-      createdAt: new Date().toISOString(),
+      studentName: students[index]?.name ?? "Student",
+      note: "Follow up required",
+      createdAt: a.createdAt,
     }));
 
-    res.json({
+    res.status(200).json({
       id: counselor.id,
       name: `${counselor.firstName} ${counselor.lastName}`,
       email: counselor.email,

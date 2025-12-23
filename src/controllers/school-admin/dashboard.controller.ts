@@ -12,6 +12,9 @@ export const getSchoolDashboard = async (req: AuthRequest, res: Response) => {
   }
 
   try {
+    // Calculate UTC 24 hours ago
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
     const [
       studentsCount,
       counselorsCount,
@@ -19,72 +22,49 @@ export const getSchoolDashboard = async (req: AuthRequest, res: Response) => {
       highRiskAlerts,
       recentAlertsRaw,
     ] = await Promise.all([
-      // Students
+      // Count active students
       prisma.user.count({
-        where: {
-          schoolId,
-          isActive: true,
-          role: { name: "STUDENT" },
-        },
+        where: { schoolId, isActive: true, role: { name: "STUDENT" } },
       }),
 
-      // Counselors
+      // Count active counselors
       prisma.user.count({
-        where: {
-          schoolId,
-          isActive: true,
-          role: { name: "COUNSELOR" },
-        },
+        where: { schoolId, isActive: true, role: { name: "COUNSELOR" } },
       }),
 
-      // Wearables (biometric activity last 24h)
+      // Count wearable activity in last 24 hours
       prisma.biometricLog.count({
-        where: {
-          timestamp: {
-            gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
-          },
-          user: { schoolId },
-        },
+        where: { timestamp: { gte: twentyFourHoursAgo }, user: { schoolId } },
       }),
 
-      // High-risk alerts
+      // Count unresolved high-risk alerts
       prisma.alert.count({
         where: {
           isResolved: false,
-          alertType: {
-            in: ["HIGH", "CRITICAL"],
-          },
+          alertType: { in: ["HIGH", "CRITICAL"] },
           student: { schoolId },
         },
       }),
 
-      // Recent alerts
+      // Get 5 most recent alerts with student names
       prisma.alert.findMany({
-        where: {
-          student: { schoolId },
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
+        where: { student: { schoolId } },
+        orderBy: { createdAt: "desc" },
         take: 5,
-        include: {
-          student: {
-            select: {
-              firstName: true,
-              lastName: true,
-            },
-          },
-        },
+        include: { student: { select: { firstName: true, lastName: true } } },
       }),
     ]);
 
+    // Map recent alerts safely
     const recentAlerts = recentAlertsRaw.map((alert) => ({
       id: alert.id,
-      studentName: `${alert.student.firstName} ${alert.student.lastName}`,
+      studentName: alert.student
+        ? `${alert.student.firstName} ${alert.student.lastName}`
+        : "Unknown",
       riskLevel: alert.alertType,
     }));
 
-    return res.json({
+    return res.status(200).json({
       studentsCount,
       counselorsCount,
       activeWearables,
