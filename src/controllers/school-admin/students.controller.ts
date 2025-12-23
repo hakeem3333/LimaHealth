@@ -2,20 +2,33 @@ import { Response } from "express";
 import prisma from "../../services/prisma.service";
 import { AuthRequest } from "../../middleware/auth.middleware";
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Map alertType to risk level
+ */
+function mapAlertToRisk(alertType: string): "LOW" | "MEDIUM" | "HIGH" {
+  if (alertType === "CRITICAL" || alertType === "HIGH") return "HIGH";
+  if (alertType === "MEDIUM") return "MEDIUM";
+  return "LOW";
+}
+
 export const getSchoolStudents = async (req: AuthRequest, res: Response) => {
   const schoolId = req.user?.schoolId;
-
   if (!schoolId) {
     return res.status(403).json({ message: "School access required" });
   }
 
   const search = (req.query.search as string) || "";
   const status = (req.query.status as string) || "all";
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 50);
 
   const isActiveFilter =
     status === "active" ? true : status === "inactive" ? false : undefined;
 
   try {
+    // Fetch students with optional search and status filter
     const students = await prisma.user.findMany({
       where: {
         schoolId,
@@ -30,7 +43,8 @@ export const getSchoolStudents = async (req: AuthRequest, res: Response) => {
         }),
       },
       orderBy: { createdAt: "desc" },
-      take: 50, // default pagination (frontend not sending page yet)
+      take: limit,
+      skip: (page - 1) * limit,
       select: {
         id: true,
         firstName: true,
@@ -42,13 +56,11 @@ export const getSchoolStudents = async (req: AuthRequest, res: Response) => {
 
     const studentIds = students.map((s) => s.id);
 
-    // Biometric activity (wearables)
+    // Fetch recent biometrics (last 24 hours)
     const recentBiometrics = await prisma.biometricLog.findMany({
       where: {
         userId: { in: studentIds },
-        timestamp: {
-          gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
-        },
+        timestamp: { gte: new Date(Date.now() - ONE_DAY_MS) },
       },
       select: { userId: true },
       distinct: ["userId"],
@@ -56,7 +68,7 @@ export const getSchoolStudents = async (req: AuthRequest, res: Response) => {
 
     const connectedSet = new Set(recentBiometrics.map((b) => b.userId));
 
-    // Latest alerts per student
+    // Fetch unresolved alerts
     const alerts = await prisma.alert.findMany({
       where: {
         studentId: { in: studentIds },
@@ -69,38 +81,30 @@ export const getSchoolStudents = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    // Map latest alert per student
     const alertMap = new Map<string, string>();
-
     for (const alert of alerts) {
       if (!alertMap.has(alert.studentId)) {
         alertMap.set(alert.studentId, alert.alertType);
       }
     }
 
+    // Map final results
     const results = students.map((student) => {
       const alertType = alertMap.get(student.id);
-
-      let riskLevel: "LOW" | "MEDIUM" | "HIGH" = "LOW";
-
-      if (alertType === "CRITICAL" || alertType === "HIGH") {
-        riskLevel = "HIGH";
-      } else if (alertType === "MEDIUM") {
-        riskLevel = "MEDIUM";
-      }
-
       return {
         id: student.id,
         name: `${student.firstName} ${student.lastName}`,
         email: student.email,
         isActive: student.isActive,
         wearableConnected: connectedSet.has(student.id),
-        riskLevel,
+        riskLevel: alertType ? mapAlertToRisk(alertType) : "LOW",
       };
     });
 
-    return res.json(results);
+    return res.status(200).json(results);
   } catch (error) {
-    console.error("Get students error:", error);
+    console.error("Get students error:", error, { schoolId, search, status });
     return res.status(500).json({ message: "Failed to load students" });
   }
 };
