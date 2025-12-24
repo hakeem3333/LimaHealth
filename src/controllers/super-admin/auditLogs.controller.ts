@@ -7,37 +7,63 @@ import prisma from "../../services/prisma.service";
  * SuperAdmin-only
  */
 export async function getAuditLogs(req: AuthRequest, res: Response) {
-  const { action, actorRole } = req.query;
+  try {
+    // 🔐 Enforce SuperAdmin access
+    if (req.user?.role !== "SUPER_ADMIN") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
 
-  const logs = await prisma.auditLog.findMany({
-    where: {
-      ...(action
-        ? { action: { contains: String(action), mode: "insensitive" } }
-        : {}),
-      ...(actorRole ? { actorRole: String(actorRole) } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: 200, // safety cap
-    include: {
-      actor: {
-        select: {
-          firstName: true,
-          lastName: true,
+    const { action, actorRole, page = "1", limit = "50" } = req.query;
+
+    const pageNumber = Math.max(Number(page), 1);
+    const pageSize = Math.min(Number(limit), 200); // safety cap
+
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        ...(action
+          ? {
+              action: {
+                contains: String(action).trim(),
+                mode: "insensitive",
+              },
+            }
+          : {}),
+        ...(actorRole ? { actorRole: String(actorRole) } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: pageSize,
+      skip: (pageNumber - 1) * pageSize,
+      include: {
+        actor: {
+          select: {
+            firstName: true,
+            lastName: true,
+          },
         },
       },
-    },
-  });
+    });
 
-  const response = logs.map((log) => ({
-    id: log.id,
-    actorName: `${log.actor.firstName} ${log.actor.lastName}`,
-    actorRole: log.actorRole,
-    action: log.action,
-    targetType: log.targetType,
-    targetId: log.targetId,
-    ipAddress: log.ipAddress,
-    createdAt: log.createdAt,
-  }));
+    const response = logs.map((log) => ({
+      id: log.id,
+      actorName: log.actor
+        ? `${log.actor.firstName} ${log.actor.lastName}`
+        : "System",
+      actorRole: log.actorRole,
+      action: log.action,
+      targetType: log.targetType,
+      targetId: log.targetId,
+      ipAddress: log.ipAddress,
+      createdAt: log.createdAt,
+    }));
 
-  return res.json(response);
+    return res.json({
+      page: pageNumber,
+      limit: pageSize,
+      count: response.length,
+      data: response,
+    });
+  } catch (error) {
+    console.error("Failed to fetch audit logs:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
 }
