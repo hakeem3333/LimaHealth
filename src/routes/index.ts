@@ -13,12 +13,29 @@ import fitbitRoutes from './fitbit.routes'; //
 import counselorRoutes from "./counselor.routes";
 import adminSetupRoutes from "./adminSetup.routes";
 import billingRoutes from "./billing.routes";
+import schoolAdminDashboardRoutes from "./school-admin/dashboard.routes";
+import schoolAdminStudentRoutes from "./school-admin/students.routes";
+import schoolAdminCounselorRoutes from "./school-admin/counselors.routes";
+import schoolAdminAlertRoutes from "./school-admin/alerts.routes";
+import schoolAdminProfileRoutes from "./school-admin/admin.routes";
+import schoolReportsRoutes from "./school-admin/schoolReports.routes";
+import schoolAdminSettingsRoutes from "./school-admin/schoolSettings.routes.js";
+import schoolAdminWearablesRoutes from "./school-admin/wearables.controller";
+
 
 const router = Router();
 
 // Define all top-level API routes
 router.use("/schools", schoolRoutes);
 router.use("/auth", authRoutes);
+router.use("/school", schoolAdminDashboardRoutes);
+router.use("/school", schoolAdminStudentRoutes);
+router.use("/school", schoolAdminCounselorRoutes);
+router.use("/school", schoolAdminAlertRoutes);
+router.use("/school", schoolAdminProfileRoutes);
+router.use("/school", schoolReportsRoutes);
+router.use("/school", schoolAdminSettingsRoutes);
+router.use("/school", schoolAdminWearablesRoutes);
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/roles", roleRoutes);
 router.use("/users", userRoutes);

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import prisma from "../../services/prisma.service";
 import { sendEmail } from "../../services/email.service";
 import { z } from "zod";
@@ -33,10 +34,14 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
 
     const { email, password } = parsed.data;
 
-    // ✅ Find user
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || user.role !== "ADMIN") {
-      return res.status(403).json({ message: "Not authorized" });
+    // ✅ Find user with role
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { role: true },
+    });
+
+    if (!user || !["ADMIN", "SUPER_ADMIN"].includes(user.role?.name || "")) {
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
     // ✅ Check password
@@ -45,9 +50,13 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // ✅ Generate OTP
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    // ✅ Delete previous OTPs
+    await prisma.adminOtp.deleteMany({ where: { userId: user.id } });
 
+    // ✅ Generate secure OTP
+    const code = crypto.randomInt(100000, 999999).toString();
+
+    // ✅ Create new OTP
     await prisma.adminOtp.create({
       data: {
         userId: user.id,
@@ -65,10 +74,12 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       text: `Your OTP is ${code}. It expires in 5 minutes.`,
     });
 
-    // ✅ Create short-lived temporary JWT
-    const tempToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET!, {
-      expiresIn: "10m",
-    });
+    // ✅ Create short-lived temporary JWT with purpose
+    const tempToken = jwt.sign(
+      { userId: user.id, purpose: "admin-login" },
+      process.env.JWT_SECRET!,
+      { expiresIn: "10m" }
+    );
 
     return res.status(200).json({
       message: "OTP sent to email",

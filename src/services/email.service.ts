@@ -51,7 +51,7 @@ export const sendEmail = async (options: MailOptions) => {
 // Verification Email
 // ==============================
 export const sendVerificationEmail = async (to: string, token: string) => {
-  const verificationUrl = `${APP_BASE_URL}/api/v1/auth/verify-email?token=${token}`;
+  const verificationUrl = `${APP_BASE_URL}/api/v1/auth/admin/verify-email?token=${token}`;
 
   return await sendEmail({
     to,

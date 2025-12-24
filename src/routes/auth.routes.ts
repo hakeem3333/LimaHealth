@@ -11,7 +11,13 @@ import {
   bulkUploadUsers,
 } from "../controllers/admin/bulkUpload.controller";
 
+import { login, loginSchema } from "../controllers/user/auth/login.controller";
+import validate from "../middleware/validate.middleware";
+
 const router = Router();
+
+router.post("/login", validate(loginSchema), login);
+
 
 // POST /api/v1/admin/upload (file: CSV)
 router.post(
@@ -22,8 +28,8 @@ router.post(
   bulkUploadUsers
 );
 
-router.post("/signup", schoolSignup);
-router.get("/verify-email", verifyEmail);
+router.post("/admin/signup", schoolSignup);
+router.get("/admin/verify-email", verifyEmail);
 router.post("/admin/login", adminLoginStep1);
 router.post("/admin/verify-otp", adminLoginStep2);
 

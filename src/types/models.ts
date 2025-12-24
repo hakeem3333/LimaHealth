@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import type { Request } from "express";
 
 /**
  * Type definition for the School model, including its users and subscriptions.
@@ -92,3 +93,17 @@ export type Consent = Prisma.ConsentGetPayload<{
     user: true;
   };
 }>;
+
+
+export type JwtUserPayload = {
+  id: string;
+  email: string;
+  roleId: string | null;
+  roleName?: string | null;
+  schoolId?: string | null;
+};
+
+export interface AuthRequest extends Request {
+  user?: JwtUserPayload;
+}
+

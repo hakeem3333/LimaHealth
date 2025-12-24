@@ -28,7 +28,7 @@ const createUserSchema = z.object({
 const createUser = async (
   req: AuthRequest,
   res: Response,
-  role: "COUNSELOR" | "TEACHER" | "STUDENT"
+  role: "COUNSELOR" | "PARENT" | "USER"
 ) => {
   try {
     // ✅ Validate request body
@@ -53,6 +53,14 @@ const createUser = async (
       return res.status(409).json({ message: "Email already in use" });
     }
 
+    const roleRecord = await prisma.role.findUnique({
+      where: { name: role },
+    });
+
+    if (!roleRecord) {
+      return res.status(400).json({ message: `Role '${role}' not found` });
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     // ✅ Create user
@@ -62,7 +70,7 @@ const createUser = async (
         lastName,
         email,
         passwordHash,
-        role,
+        roleId: roleRecord.id,
         schoolId,
       },
     });
@@ -86,7 +94,7 @@ export const addCounsellor = (req: AuthRequest, res: Response) =>
   createUser(req, res, "COUNSELOR");
 
 export const addTeacher = (req: AuthRequest, res: Response) =>
-  createUser(req, res, "TEACHER");
+  createUser(req, res, "PARENT");
 
 export const addStudent = (req: AuthRequest, res: Response) =>
-  createUser(req, res, "STUDENT");
+  createUser(req, res, "USER");

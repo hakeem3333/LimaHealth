@@ -11,7 +11,7 @@ async function safeHash(password) {
 }
 
 async function main() {
-  console.log("🌱 Starting optimized RBAC seed...");
+  console.log("🌱 Starting RBAC seed...");
 
   // Validate env early
   const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || "").trim();
@@ -37,27 +37,25 @@ async function main() {
     "bulk_upload",
   ];
 
-  // Use createMany for bulk insert + skip duplicates (faster)
   await prisma.permission.createMany({
     data: permissionsList.map((name) => ({ name })),
     skipDuplicates: true,
   });
   console.log(`✅ Permissions upserted (${permissionsList.length})`);
 
-  // Fetch fresh permissions (id + name)
   const allPermissions = await prisma.permission.findMany({
     select: { id: true, name: true },
   });
+
   const permByName = Object.fromEntries(
     allPermissions.map((p) => [p.name, p.id])
   );
 
-  // ---- Roles ----
+  // ---- Roles (UPDATED) ----
   const rolesDefinition = [
-    // SUPER_ADMIN will be assigned all permissions programmatically below (Option A)
-    { name: "SUPER_ADMIN", permissionNames: [] }, // placeholder
+    { name: "SUPER_ADMIN", permissionNames: [] }, // gets all permissions
     {
-      name: "SCHOOL_ADMIN",
+      name: "ADMIN",
       permissionNames: [
         "manage_counselors",
         "manage_students",
@@ -76,11 +74,10 @@ async function main() {
         "view_biometric_data",
       ],
     },
-    { name: "STUDENT", permissionNames: ["view_mood_logs"] },
+    { name: "USER", permissionNames: ["view_mood_logs"] },
     { name: "PARENT", permissionNames: ["view_mood_logs"] },
   ];
 
-  // Upsert roles in parallel
   const upsertRolePromises = rolesDefinition.map((r) =>
     prisma.role.upsert({
       where: { name: r.name },
@@ -91,22 +88,23 @@ async function main() {
   );
 
   const upsertedRoles = await Promise.all(upsertRolePromises);
+
   const roleByName = Object.fromEntries(
     upsertedRoles.map((r) => [r.name, r.id])
   );
+
   console.log(`✅ Roles upserted (${upsertedRoles.length})`);
 
-  // ---- RolePermission mappings (bulk) ----
-  // Build mapping rows: SUPER_ADMIN gets ALL permissions (option A)
+  // ---- RolePermission mappings ----
   const rows = [];
 
   for (const roleDef of rolesDefinition) {
     const roleId = roleByName[roleDef.name];
+
     let permsForRole = roleDef.permissionNames.slice();
 
     if (roleDef.name === "SUPER_ADMIN") {
-      // assign all permissions present in DB
-      permsForRole = allPermissions.map((p) => p.name);
+      permsForRole = allPermissions.map((p) => p.name); // assign ALL
     }
 
     for (const permName of permsForRole) {
@@ -120,20 +118,18 @@ async function main() {
   }
 
   if (rows.length > 0) {
-    // createMany supports skipDuplicates to avoid unique constraint errors
     await prisma.rolePermission.createMany({
       data: rows,
       skipDuplicates: true,
     });
     console.log(`✅ RolePermission mappings created (${rows.length})`);
   } else {
-    console.log("ℹ️ No role-permission mappings to create");
+    console.log("ℹ️ No role-permission mappings created");
   }
 
-  // ---- Create default SUPER_ADMIN user ----
+  // ---- Create default SUPER_ADMIN ----
   const hashedPassword = await safeHash(SUPER_ADMIN_PASSWORD);
 
-  // Upsert user (schoolId omitted for global user)
   const superAdmin = await prisma.user.upsert({
     where: { email: SUPER_ADMIN_EMAIL },
     update: {
@@ -141,7 +137,6 @@ async function main() {
       lastName: "Admin",
       isActive: true,
       roleId: roleByName["SUPER_ADMIN"],
-      // do not update password unless you explicitly want to; update here is empty
     },
     create: {
       firstName: "Super",
@@ -155,15 +150,13 @@ async function main() {
   });
 
   console.log(`✨ Default SUPER_ADMIN ensured: ${superAdmin.email}`);
-
   console.log("🌱 Seed finished successfully.");
 }
 
 // Run
 main()
   .catch((err) => {
-    console.error("❌ Seed failed:", err.message || err);
-    if (err.stack) console.error(err.stack);
+    console.error("❌ Seed failed:", err);
     process.exit(1);
   })
   .finally(async () => {

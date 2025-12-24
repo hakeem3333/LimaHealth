@@ -58,8 +58,12 @@ export const schoolSignup = async (req: Request, res: Response) => {
     // ✅ Check if another admin already exists for this school
     const existingAdmin = await prisma.user.findFirst({
       where: {
-        role: "ADMIN",
         school: { name },
+        role: {
+          is: {
+            name: "ADMIN",
+          },
+        },
       },
     });
 
@@ -104,10 +108,16 @@ export const schoolSignup = async (req: Request, res: Response) => {
           lastName,
           email: contact_email,
           passwordHash: hashedPassword,
-          role: "ADMIN",
-          schoolId: school.id,
+          isActive: true, 
+          role: {
+            connect: { name: "ADMIN" }, 
+          },
+          school: {
+            connect: { id: school.id },
+          },
         },
       });
+
 
       const token = uuidv4();
       const expiresAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
