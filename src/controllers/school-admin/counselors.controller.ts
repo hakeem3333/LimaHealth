@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import prisma from "../../services/prisma.service";
-import { AuthRequest } from "../../middleware/auth.middleware";
+import type { AuthRequest } from "../../middleware/auth.middleware";
 
 export const listCounselors = async (req: AuthRequest, res: Response) => {
   const schoolId = req.user?.schoolId;

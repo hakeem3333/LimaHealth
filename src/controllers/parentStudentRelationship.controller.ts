@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
-import prisma from "../services/prisma.service";
-import type { ParentStudentRelationship } from "../types/models";
+import prisma from "../services/prisma.service.js"; // Added .js
+import type { ParentStudentRelationship } from "../types/models.js"; // Added .js
 import { z } from "zod";
 
 /** -------------------------------
@@ -25,17 +25,17 @@ const relationshipParamsSchema = z.object({
  */
 const validate =
   (schema: z.AnyZodObject, source: "body" | "params" = "body") =>
-  (req: Request, res: Response, next: Function) => {
-    const parsed = schema.safeParse(req[source]);
-    if (!parsed.success) {
-      return res.status(400).json({
-        message: "Validation failed",
-        errors: parsed.error.flatten(),
-      });
-    }
-    (req as any)[source] = parsed.data;
-    next();
-  };
+    (req: Request, res: Response, next: Function) => {
+      const parsed = schema.safeParse(req[source]);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: parsed.error.flatten(),
+        });
+      }
+      (req as any)[source] = parsed.data;
+      next();
+    };
 
 /** -------------------------------
  *  CONTROLLERS
@@ -137,6 +137,61 @@ export const deleteParentStudentRelationship = [
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting relationship:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
+];
+
+/**
+ * Get Child Health Data
+ * Checks for parental consent before returning data.
+ */
+export const getChildHealthData = [
+  validate(relationshipParamsSchema, "params"),
+  async (req: Request, res: Response): Promise<void> => {
+    const { parentId, studentId } = req.params;
+
+    try {
+      // 1. Verify Relationship
+      const relationship = await prisma.parentStudentRelationship.findUnique({
+        where: { parentId_studentId: { parentId, studentId } },
+      });
+
+      if (!relationship) {
+        res.status(404).json({ message: "Parent-Student relationship not found" });
+        return;
+      }
+
+      // 2. Check Consent
+      const consent = await prisma.consent.findUnique({
+        where: { userId: studentId },
+      });
+
+      if (!consent || !consent.parentalConsentGiven) {
+        res.status(403).json({ message: "Parental consent not granted for this student." });
+        return;
+      }
+
+      // 3. Fetch Data
+      const moodLogs = await prisma.moodLog.findMany({
+        where: { userId: studentId },
+        orderBy: { timestamp: "desc" },
+        take: 10,
+      });
+
+      const biometricLogs = await prisma.biometricLog.findMany({
+        where: { userId: studentId },
+        orderBy: { timestamp: "desc" },
+        take: 10,
+      });
+
+      res.status(200).json({
+        studentId,
+        moodLogs,
+        biometricLogs,
+      });
+    } catch (error) {
+      console.error("Error fetching child health data:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },

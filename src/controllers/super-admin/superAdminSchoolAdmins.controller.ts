@@ -1,6 +1,6 @@
-import { Response } from "express";
+import type { Response } from "express";
 import { z } from "zod";
-import { AuthRequest } from "../../types/models";
+import type { AuthRequest } from "../../types/models";
 import prisma from "../../services/prisma.service";
 
 const ROLES = {

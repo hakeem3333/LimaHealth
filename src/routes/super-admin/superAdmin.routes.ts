@@ -6,24 +6,24 @@ import {
   deactivateAdmin,
 } from "../../controllers/super-admin/superAdminAdmins.controller";
 
-import { getAuditLogs } from "../../super-admin/controllers/auditLogs.controller";
-import { getSuperAdminDashboard } from "../../super-super-admin/controllers/superAdminDashboard.controller";
-import { getSuperAdminReports } from "../../super-admin/controllers/superAdminReports.controller";
+import { getAuditLogs } from "../../controllers/super-admin/auditLogs.controller";
+import { getSuperAdminDashboard } from "../../controllers/super-admin/superAdminDashboard.controller";
+import { getSuperAdminReports } from "../../controllers/super-admin/superAdminReports.controller";
 import {
   getAllSchools,
   getSchoolById,
   updateSchool,
-} from "../../super-admin/controllers/superAdminSchools.controller";
+} from "../../controllers/super-admin/superAdminSchools.controller";
 
 import {
   getSchoolAdmins,
   assignAdminToSchool,
   removeAdminFromSchool,
-} from "../../super-admin/controllers/superAdminSchoolAdmins.controller";
-import { 
-    getPlatformSettings, 
-    updatePlatformSettings 
-} from "../../super-admin/controllers/superAdminSettings.controller";
+} from "../../controllers/super-admin/superAdminSchoolAdmins.controller";
+import {
+  getPlatformSettings,
+  updatePlatformSettings,
+} from "../../controllers/super-admin/superAdminSettings.controller";
 
 const router = Router();
 

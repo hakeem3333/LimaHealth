@@ -1,6 +1,6 @@
 import type { Response } from "express";
-import { AuthRequest } from "../types/auth.types";
-import prisma from "../services/prisma.service";
+import type { AuthRequest } from "../../types/models";
+import prisma from "../../services/prisma.service";
 
 const ROLES = {
   STUDENT: "STUDENT",

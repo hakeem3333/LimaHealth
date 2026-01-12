@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
-import { AuthRequest } from "../../types/models";
+import type { AuthRequest } from "../../types/models";
 import prisma from "../../services/prisma.service";
 import { SchoolStatus } from "@prisma/client";
 
@@ -47,18 +47,23 @@ export async function getAllSchools(req: AuthRequest, res: Response) {
       },
     });
 
-    const formatted = schools.map((school) => ({
-      id: school.id,
-      name: school.name,
-      email: school.contact_email,
-      status: school.status,
-      createdAt: school.createdAt,
-      studentsCount: school._count?.users ?? 0,
-      // For admins, we need a separate query or can leave as 0 if rarely used
-      adminsCount: await prisma.user.count({
-        where: { schoolId: school.id, role: { name: ROLES.SCHOOL_ADMIN } },
-      }),
-    }));
+    const formatted = await Promise.all(
+      schools.map(async (school) => ({
+        id: school.id,
+        name: school.name,
+        email: school.contact_email,
+        status: school.status,
+        createdAt: school.createdAt,
+        studentsCount: school._count?.users ?? 0,
+        adminsCount: await prisma.user.count({
+          where: {
+            schoolId: school.id,
+            role: { name: ROLES.SCHOOL_ADMIN },
+          },
+        }),
+      }))
+    );
+
 
     return res.json(formatted);
   } catch (error) {

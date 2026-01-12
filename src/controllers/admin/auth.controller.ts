@@ -108,9 +108,9 @@ export const schoolSignup = async (req: Request, res: Response) => {
           lastName,
           email: contact_email,
           passwordHash: hashedPassword,
-          isActive: true, 
+          isActive: true,
           role: {
-            connect: { name: "ADMIN" }, 
+            connect: { name: "SCHOOL_ADMIN" },
           },
           school: {
             connect: { id: school.id },
@@ -175,12 +175,12 @@ export const verifyEmail = async (req: Request, res: Response) => {
 
     await prisma.school.update({
       where: { id: record.schoolId },
-      data: { status: "ACTIVE" },
+      data: { status: "PENDING_ACTIVATION" }, // Changed from ACTIVE to PENDING_ACTIVATION
     });
 
     await prisma.emailVerificationToken.delete({ where: { id: record.id } });
 
-    res.send("Email verified successfully! Your school is now active.");
+    res.send("Email verified successfully! Your school account is now pending approval by the Super Admin.");
   } catch (error) {
     console.error("Error verifying email:", error);
     res.status(500).send("Internal server error");

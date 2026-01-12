@@ -3,7 +3,7 @@ import { Router } from "express";
 import {
   getSchoolSettings,
   updateSchoolSettings,
-} from "../../controllers/admin-school/schoolSettings.controller";
+} from "../../controllers/school-admin/schoolSettings.controller";
 import { authenticate, authorize } from "../../middleware/auth.middleware";
 
 const router = Router();

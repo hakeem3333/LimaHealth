@@ -11,9 +11,16 @@ datasource db {
 
 enum SchoolStatus {
   PENDING_EMAIL_VERIFICATION
-  PENDING_ACTIVATION
+  PENDING_ACTIVATION // Added for SuperAdmin approval workflow
   ACTIVE
   SUSPENDED
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
 }
 
 //
@@ -105,6 +112,16 @@ model User {
   consent           Consent?
 
   bulkUploadLogs    BulkUploadLog[]             @relation("AdminBulkUploads")
+  
+  // Appointments
+  appointmentsAsStudent   Appointment[]       @relation("StudentAppointments")
+  appointmentsAsCounselor Appointment[]       @relation("CounselorAppointments")
+
+  // AI Analysis
+  aiAnalyses              AIAnalysis[]
+
+  // Audit Logs
+  auditLogs               AuditLog[]
 
   @@index([schoolId]) // Index for faster queries by school
 }
@@ -222,7 +239,7 @@ model PlatformSettings {
   requireEmailVerification Boolean @default(true)
 
   // 🔐 Security
-  adminOtpExpiryMinutes    Int     @default(10)
+  adminOtpsExpiryMinutes    Int     @default(10)
   enforceAuditLogging      Boolean @default(true)
 
   // 📡 Platform features
@@ -235,4 +252,35 @@ model PlatformSettings {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+//
+// NEW MODELS FOR APPOINTMENTS & AI
+//
+
+model Appointment {
+  id          String            @id @default(uuid())
+  studentId   String
+  counselorId String
+  startTime   DateTime
+  endTime     DateTime
+  status      AppointmentStatus @default(PENDING)
+  reason      String?
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  student     User              @relation("StudentAppointments", fields: [studentId], references: [id])
+  counselor   User              @relation("CounselorAppointments", fields: [counselorId], references: [id])
+}
+
+model AIAnalysis {
+  id        String   @id @default(uuid())
+  userId    String
+  context   String   // e.g. "mood_log", "biometric_summary"
+  inputJson Json
+  outputJson Json
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
 }

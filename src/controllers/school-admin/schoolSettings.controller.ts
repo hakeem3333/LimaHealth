@@ -1,7 +1,7 @@
 // controllers/schoolSettings.controller.ts
-import { Response } from "express";
+import type { Response } from "express";
 import { z } from "zod";
-import prisma from "../services/prisma.service";
+import prisma from "../../services/prisma.service";
 import type { AuthRequest } from "../../types/models.js";
 
 const updateSchoolSettingsSchema = z.object({
@@ -72,5 +72,29 @@ export async function updateSchoolSettings(req: AuthRequest, res: Response) {
   return res.json({
     success: true,
     settings: updatedSettings,
+  });
+}
+
+
+export async function getSchoolSettings(req: AuthRequest, res: Response) {
+  if (!req.user?.schoolId) {
+    return res.status(403).json({ message: "School context required" });
+  }
+
+  const school = await prisma.school.findUnique({
+    where: { id: req.user.schoolId },
+    select: {
+      name: true,
+      activationData: true,
+    },
+  });
+
+  if (!school) {
+    return res.status(404).json({ message: "School not found" });
+  }
+
+  return res.json({
+    name: school.name,
+    settings: (school.activationData as any)?.settings ?? {},
   });
 }

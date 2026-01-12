@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import crypto from "crypto";
-import { AuthRequest } from "../../types/models";
+import type { AuthRequest } from "../../types/models";
 import prisma from "../../services/prisma.service";
 import { sendEmail } from "../../services/email.service";
 

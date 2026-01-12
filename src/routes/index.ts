@@ -1,27 +1,29 @@
 import { Router } from "express";
-import schoolRoutes from "./school.routes";
-import authRoutes from "./auth.routes";
-import subscriptionRoutes from "./subscription.routes";
-import roleRoutes from "./role.routes";
-import userRoutes from "./user.routes";
-import biometricLogRoutes from "./biometricLog.routes";
-import moodLogRoutes from "./moodLog.routes";
-import alertRoutes from "./alert.routes";
-import parentStudentRelationshipRoutes from "./parentStudentRelationship.routes";
-import consentRoutes from "./consent.routes";
-import fitbitRoutes from './fitbit.routes'; //
-import counselorRoutes from "./counselor.routes";
-import adminSetupRoutes from "./adminSetup.routes";
-import billingRoutes from "./billing.routes";
-import schoolAdminDashboardRoutes from "./school-admin/dashboard.routes";
-import schoolAdminStudentRoutes from "./school-admin/students.routes";
-import schoolAdminCounselorRoutes from "./school-admin/counselors.routes";
-import schoolAdminAlertRoutes from "./school-admin/alerts.routes";
-import schoolAdminProfileRoutes from "./school-admin/admin.routes";
-import schoolReportsRoutes from "./school-admin/schoolReports.routes";
+import schoolRoutes from "./school.routes.js";
+import authRoutes from "./auth.routes.js";
+import subscriptionRoutes from "./subscription.routes.js";
+import roleRoutes from "./role.routes.js";
+import userRoutes from "./user.routes.js";
+import biometricLogRoutes from "./biometricLog.routes.js";
+import moodLogRoutes from "./moodLog.routes.js";
+import alertRoutes from "./alert.routes.js";
+import parentStudentRelationshipRoutes from "./parentStudentRelationship.routes.js";
+import consentRoutes from "./consent.routes.js";
+import fitbitRoutes from './fitbit.routes.js'; //
+import counselorRoutes from "./counselor.routes.js";
+import adminSetupRoutes from "./adminSetup.routes.js";
+import billingRoutes from "./billing.routes.js";
+import schoolAdminDashboardRoutes from "./school-admin/dashboard.routes.js";
+import schoolAdminStudentRoutes from "./school-admin/students.routes.js";
+import schoolAdminCounselorRoutes from "./school-admin/counselors.routes.js";
+import schoolAdminAlertRoutes from "./school-admin/alerts.routes.js";
+import schoolAdminProfileRoutes from "./school-admin/admin.routes.js";
+import schoolReportsRoutes from "./school-admin/schoolReports.routes.js";
 import schoolAdminSettingsRoutes from "./school-admin/schoolSettings.routes.js";
-import schoolAdminWearablesRoutes from "./school-admin/wearables.controller";
-import superAdminRoutes from "./super-admin/superAdmin.routes";
+import schoolAdminWearablesRoutes from "./school-admin/wearables.controller.js";
+import superAdminRoutes from "./super-admin/superAdmin.routes.js";
+import aiRoutes from "./ai.routes.js";
+import appointmentRoutes from "./appointment.routes.js";
 
 
 const router = Router();
@@ -51,5 +53,8 @@ router.use("/consents", consentRoutes);
 router.use("/fitbit", fitbitRoutes);
 router.use("/admin/setup", adminSetupRoutes);
 router.use("/billing", billingRoutes);
+
+router.use("/ai", aiRoutes);
+router.use("/appointments", appointmentRoutes);
 
 export default router;

@@ -1,8 +1,8 @@
 // controllers/schoolReports.controller.ts
-import { Response } from "express";
-import prisma from "../services/prisma.service";
-import { AuthRequest } from "../types/auth.types";
-import { getDateFromRange } from "../utils/dateRange";
+import type { Response } from "express";
+import prisma from "../../services/prisma.service";
+import type { AuthRequest } from "../../types/models";
+import { getDateFromRange } from "../../utils/dateRange";
 
 export async function getSchoolReports(req: AuthRequest, res: Response) {
   if (!req.user?.schoolId) {

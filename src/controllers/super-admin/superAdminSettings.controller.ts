@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import { AuthRequest } from "../../types/models";
+import type { AuthRequest } from "../../types/models";
 import { z } from "zod";
 import prisma from "../../services/prisma.service";
 

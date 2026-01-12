@@ -1,6 +1,6 @@
-import { Response } from "express";
-import { AuthRequest } from "../types/auth.types";
-import prisma from "../services/prisma.service";
+import type { Response } from "express";
+import type { AuthRequest } from "../../types/models";
+import prisma from "../../services/prisma.service";
 
 export async function getSchoolWearables(req: AuthRequest, res: Response) {
   if (!req.user?.schoolId) {

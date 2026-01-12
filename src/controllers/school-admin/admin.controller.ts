@@ -2,7 +2,7 @@ import type { Response } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import prisma from "../../services/prisma.service";
-import { AuthRequest } from "../../middleware/auth.middleware";
+import type { AuthRequest } from "../../middleware/auth.middleware";
 
 export const changePasswordSchema = z
   .object({

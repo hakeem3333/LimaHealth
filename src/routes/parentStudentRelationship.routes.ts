@@ -5,7 +5,7 @@ import {
   getParentStudentRelationshipById,
   updateParentStudentRelationship,
   deleteParentStudentRelationship,
-} from "../controllers/parentStudentRelationship.controller";
+} from "../controllers/parentStudentRelationship.controller.js"; // Added .js
 
 const router = Router();
 
@@ -128,5 +128,33 @@ router.put("/:id", updateParentStudentRelationship);
  * description: Relationship not found.
  */
 router.delete("/:id", deleteParentStudentRelationship);
+
+router.delete("/:id", deleteParentStudentRelationship);
+
+/**
+ * @swagger
+ * /parent-student-relationships/{parentId}/{studentId}/health:
+ * get:
+ * summary: Retrieves child health data if consent is given.
+ * tags: [ParentStudentRelationships]
+ * parameters:
+ * - in: path
+ * name: parentId
+ * required: true
+ * schema:
+ * type: string
+ * - in: path
+ * name: studentId
+ * required: true
+ * schema:
+ * type: string
+ * responses:
+ * 200:
+ * description: Health data.
+ * 403:
+ * description: Consent not granted.
+ */
+import { getChildHealthData } from "../controllers/parentStudentRelationship.controller.js"; // Added .js
+router.get("/:parentId/:studentId/health", getChildHealthData);
 
 export default router;

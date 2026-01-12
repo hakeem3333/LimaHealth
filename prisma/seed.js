@@ -55,7 +55,7 @@ async function main() {
   const rolesDefinition = [
     { name: "SUPER_ADMIN", permissionNames: [] }, // gets all permissions
     {
-      name: "ADMIN",
+      name: "SCHOOL_ADMIN",
       permissionNames: [
         "manage_counselors",
         "manage_students",
@@ -74,7 +74,7 @@ async function main() {
         "view_biometric_data",
       ],
     },
-    { name: "USER", permissionNames: ["view_mood_logs"] },
+    { name: "STUDENT", permissionNames: ["view_mood_logs"] },
     { name: "PARENT", permissionNames: ["view_mood_logs"] },
   ];
 
