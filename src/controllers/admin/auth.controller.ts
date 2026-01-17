@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 
@@ -11,31 +12,25 @@ import { sendVerificationEmail } from "../../services/email.service";
 // ====================
 
 const schoolSignupSchema = z.object({
-  name: z
-    .string({ required_error: "School name is required" })
-    .min(2, "School name must be at least 2 characters"),
-  contact_email: z
-    .string({ required_error: "Email is required" })
-    .email("Invalid email format"),
-  password: z
-    .string({ required_error: "Password is required" })
-    .min(8, "Password must be at least 8 characters long"),
+  name: z.string().min(2, "School name must be at least 2 characters"),
+  contact_email: z.string().email("Invalid email format"),
+  password: z.string().min(8, "Password must be at least 8 characters long"),
   website: z
     .string()
     .url("Invalid website URL")
     .optional()
-    .or(z.literal("").transform(() => undefined)), // Allow empty string
-  firstName: z
-    .string({ required_error: "First name is required" })
-    .min(2, "First name must be at least 2 characters"),
-  lastName: z
-    .string({ required_error: "Last name is required" })
-    .min(2, "Last name must be at least 2 characters"),
+    .or(z.literal("").transform(() => undefined)),
+  firstName: z.string().min(2, "First name must be at least 2 characters"),
+  lastName: z.string().min(2, "Last name must be at least 2 characters"),
 });
 
 const verifyEmailSchema = z.object({
   token: z.string().uuid("Invalid verification token format"),
 });
+
+// Helper to hash the UUID token before storing in DB
+const hashToken = (token: string) =>
+  crypto.createHash("sha256").update(token).digest("hex");
 
 // ====================
 // 🏫 Signup Controller
@@ -43,60 +38,35 @@ const verifyEmailSchema = z.object({
 
 export const schoolSignup = async (req: Request, res: Response) => {
   try {
-    // ✅ Validate request body
     const parseResult = schoolSignupSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({
-        message: "Invalid input",
-        errors: parseResult.error.flatten().fieldErrors,
-      });
+      return res
+        .status(400)
+        .json({
+          message: "Invalid input",
+          errors: parseResult.error.flatten().fieldErrors,
+        });
     }
 
     const { name, contact_email, password, website, firstName, lastName } =
       parseResult.data;
 
-    // ✅ Check if another admin already exists for this school
-    const existingAdmin = await prisma.user.findFirst({
-      where: {
-        school: { name },
-        role: {
-          is: {
-            name: "ADMIN",
-          },
-        },
-      },
-    });
-
-    if (existingAdmin) {
-      return res
-        .status(400)
-        .json({ message: "An admin already exists for this school" });
-    }
-
-    // ✅ Check if school already exists by email
-    const existingSchool = await prisma.school.findUnique({
-      where: { contact_email },
+    // 1. Check for existing school/admin to prevent duplicates
+    const existingSchool = await prisma.school.findFirst({
+      where: { OR: [{ contact_email }, { name }] },
     });
 
     if (existingSchool) {
       return res
         .status(409)
-        .json({ message: "A school with this email already exists" });
-    }
-
-    // ✅ Check duplicate school name 
-    const existingByName = await prisma.school.findUnique({
-      where: { name },
-    });
-    if (existingByName) {
-      return res
-        .status(409)
-        .json({ message: "A school with this name already exists" });
+        .json({ message: "A school with this name or email already exists" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const rawToken = uuidv4();
+    const tokenHash = hashToken(rawToken);
 
-    // ✅ Wrap everything in a single transaction
+    // 2. Database Transaction
     const result = await prisma.$transaction(async (tx) => {
       const school = await tx.school.create({
         data: { name, contact_email, website },
@@ -109,43 +79,35 @@ export const schoolSignup = async (req: Request, res: Response) => {
           email: contact_email,
           passwordHash: hashedPassword,
           isActive: true,
-          role: {
-            connect: { name: "SCHOOL_ADMIN" },
-          },
-          school: {
-            connect: { id: school.id },
-          },
+          role: { connect: { name: "SCHOOL_ADMIN" } },
+          school: { connect: { id: school.id } },
         },
       });
 
-
-      const token = uuidv4();
-      const expiresAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
-
       await tx.emailVerificationToken.create({
-        data: { schoolId: school.id, token, expiresAt },
+        data: {
+          schoolId: school.id,
+          token: tokenHash, // Store the hash, not the raw UUID
+          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+        },
       });
 
-      const emailResult = await sendVerificationEmail(contact_email, token);
-
-      if (!emailResult) throw new Error("Failed to send verification email");
-
-      return { school, adminUser, emailResult };
+      return { school, adminUser };
     });
 
-    const { school, adminUser, emailResult } = result;
+    // 3. Send Email (Outside transaction to prevent DB bloat/locks)
+    const emailResult = await sendVerificationEmail(contact_email, rawToken);
 
     return res.status(201).json({
       message: "Signup successful. Please verify your email.",
-      schoolId: school.id,
-      adminUserId: adminUser.id,
-      previewLink: emailResult?.preview,
+      schoolId: result.school.id,
+      previewLink: emailResult?.preview, // Only if using a dev mailer like ethereal
     });
   } catch (error) {
     console.error("Error during signup:", error);
-    return res.status(500).json({
-      message: "Internal server error during signup",
-    });
+    return res
+      .status(500)
+      .json({ message: "Internal server error during signup" });
   }
 };
 
@@ -157,79 +119,86 @@ export const verifyEmail = async (req: Request, res: Response) => {
   try {
     const parseResult = verifyEmailSchema.safeParse(req.query);
     if (!parseResult.success) {
-      return res.status(400).json({ message: "Invalid token", errors: parseResult.error.flatten()});
+      return res.status(400).json({ message: "Invalid token" });
     }
 
     const { token } = parseResult.data;
+    const incomingHash = hashToken(token);
 
     const record = await prisma.emailVerificationToken.findUnique({
-      where: { token },
+      where: { token: incomingHash },
       include: { school: true },
     });
 
     if (!record) {
-      return res.status(404).json({
-        code: "TOKEN_NOT_FOUND",
-        message: "Verification token is invalid.",
-      });
+      return res
+        .status(404)
+        .json({ message: "Verification token is invalid or already used." });
     }
 
     if (record.expiresAt < new Date()) {
-      return res.status(410).json({
-        code: "TOKEN_EXPIRED",
-        message: "Verification token has expired.",
-        email: record.school.contact_email, // 👈 useful for retry
-      });
+      return res
+        .status(410)
+        .json({
+          message: "Token expired.",
+          email: record.school.contact_email,
+        });
     }
 
-    await prisma.school.update({
-      where: { id: record.schoolId },
-      data: { status: "PENDING_ACTIVATION" },
-    });
+    // Atomic update and cleanup
+    await prisma.$transaction([
+      prisma.school.update({
+        where: { id: record.schoolId },
+        data: { status: "PENDING_ACTIVATION" },
+      }),
+      prisma.emailVerificationToken.delete({
+        where: { id: record.id },
+      }),
+    ]);
 
-    await prisma.emailVerificationToken.delete({
-      where: { id: record.id },
-    });
-
-    res.json({
+    return res.json({
       verified: true,
-      message:
-        "Email verified successfully! Your school account is now pending approval.",
+      message: "Email verified! Your account is pending approval.",
     });
   } catch (error) {
     console.error("Error verifying email:", error);
-    res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
+// ====================
+// 🔄 Resend Controller
+// ====================
 
 export const resendVerificationEmail = async (req: Request, res: Response) => {
-  const { email } = req.body;
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
 
-  const school = await prisma.school.findUnique({
-    where: { contact_email: email },
-  });
+    const school = await prisma.school.findUnique({
+      where: { contact_email: email },
+    });
+    if (!school) return res.status(404).json({ message: "School not found" });
 
-  if (!school) {
-    return res.status(404).json({ message: "School not found" });
+    const rawToken = uuidv4();
+    const tokenHash = hashToken(rawToken);
+
+    await prisma.$transaction([
+      prisma.emailVerificationToken.deleteMany({
+        where: { schoolId: school.id },
+      }),
+      prisma.emailVerificationToken.create({
+        data: {
+          token: tokenHash,
+          schoolId: school.id,
+          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+        },
+      }),
+    ]);
+
+    await sendVerificationEmail(email, rawToken);
+    return res.json({ message: "Verification email resent." });
+  } catch (error) {
+    return res.status(500).json({ message: "Error resending email" });
   }
-
-  // Use the same UUID logic as your signup
-  const token = uuidv4();
-
-  await prisma.$transaction([
-    prisma.emailVerificationToken.deleteMany({
-      where: { schoolId: school.id },
-    }),
-    prisma.emailVerificationToken.create({
-      data: {
-        token,
-        schoolId: school.id,
-        expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000), // Match the 3h expiry
-      },
-    }),
-  ]);
-  await sendVerificationEmail(email, token);
-
-  res.json({ message: "Verification email resent." });
 };

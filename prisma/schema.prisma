@@ -186,11 +186,13 @@ model Consent {
 
 model EmailVerificationToken {
   id        String   @id @default(uuid())
-  token     String   @unique
+  tokenHash String   @unique
   schoolId  String
   school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   expiresAt DateTime
+
+  @@index([schoolId])
 }
 
 model RefreshToken {
