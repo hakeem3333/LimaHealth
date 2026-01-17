@@ -1,33 +1,32 @@
 import type { Request, Response, NextFunction } from "express";
-import type { ZodSchema } from "zod";
+import { ZodSchema, ZodError } from "zod";
 
 /**
- * Generic Zod validation middleware.
- *
- * Usage:
- *   router.post("/login", validate(loginSchema), login);
+ * Enhanced Zod validation middleware.
+ * Supports body, query, and params validation.
  */
 const validate =
-  (schema: ZodSchema) => (req: Request, res: Response, next: NextFunction) => {
+  (schema: ZodSchema, target: "body" | "query" | "params" = "body") =>
+  (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Parse & validate body
-      schema.parse(req.body);
+      // 1. Parse and Transform
+      // We assign the result back to req[target] so that .transform()
+      // and .default() values are available in the controllers.
+      req[target] = schema.parse(req[target]);
+
       next();
-    } catch (err: any) {
-      if (err.errors) {
-        // Zod validation error
+    } catch (err) {
+      if (err instanceof ZodError) {
+        // 2. Structured Error Response
         return res.status(400).json({
-          message: "Validation failed",
-          errors: err.errors.map((e: any) => ({
-            field: e.path.join("."),
-            message: e.message,
-          })),
+          message: err.issues[0]?.message || "Validation failed", // Friendly top-level message
+          errors: err.flatten().fieldErrors, // Cleaner structured errors for the frontend
         });
       }
 
-      // Unknown error
-      return res.status(400).json({
-        message: "Invalid request data",
+      // 3. Fallback for unexpected errors
+      return res.status(500).json({
+        message: "Internal server error during validation",
       });
     }
   };
