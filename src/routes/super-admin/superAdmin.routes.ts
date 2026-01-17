@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, authorize } from "../../middleware/auth.middleware";
+import { authenticate, authorizeRole } from "../../middleware/auth.middleware";
 import {
   listSchoolAdmins,
   resetAdminPassword,
@@ -28,7 +28,7 @@ import {
 const router = Router();
 
 router.use(authenticate);
-router.use(authorize("SUPER_ADMIN"));
+router.use(authorizeRole("SUPER_ADMIN"));
 
 router.get("/admins", listSchoolAdmins);
 router.post("/admins/:id/reset-password", resetAdminPassword);

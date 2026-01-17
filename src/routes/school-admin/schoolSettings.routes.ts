@@ -4,21 +4,21 @@ import {
   getSchoolSettings,
   updateSchoolSettings,
 } from "../../controllers/school-admin/schoolSettings.controller";
-import { authenticate, authorize } from "../../middleware/auth.middleware";
+import { authenticate, authorizeRole } from "../../middleware/auth.middleware";
 
 const router = Router();
 
 router.get(
   "/settings",
   authenticate,
-  authorize("SCHOOL_ADMIN"),
+  authorizeRole("SCHOOL_ADMIN"),
   getSchoolSettings
 );
 
 router.put(
   "/settings",
   authenticate,
-  authorize("SCHOOL_ADMIN"),
+  authorizeRole("SCHOOL_ADMIN"),
   updateSchoolSettings
 );
 

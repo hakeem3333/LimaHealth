@@ -6,7 +6,7 @@ import {
   updateSchool,
   deleteSchool,
 } from "../controllers/school.controller";
-import { authenticate, authorize } from "../middleware/auth.middleware";
+import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 
 const router = Router();
 
@@ -44,7 +44,7 @@ const router = Router();
  *   400:
  *     description: Invalid input.
  */
-router.post("/", authenticate, authorize("manage_schools"), createSchool);
+router.post("/", authenticate, authorizeRole("manage_schools"), createSchool);
 
 /**
  * @swagger
@@ -56,7 +56,7 @@ router.post("/", authenticate, authorize("manage_schools"), createSchool);
  *   200:
  *     description: A list of schools.
  */
-router.get("/", authenticate, authorize("manage_schools"), getAllSchools);
+router.get("/", authenticate, authorizeRole("manage_schools"), getAllSchools);
 
 /**
  * @swagger
@@ -77,7 +77,7 @@ router.get("/", authenticate, authorize("manage_schools"), getAllSchools);
  *   404:
  *     description: School not found.
  */
-router.get("/:id", authenticate, authorize("manage_schools"), getSchoolById);
+router.get("/:id", authenticate, authorizeRole("manage_schools"), getSchoolById);
 
 /**
  * @swagger
@@ -115,7 +115,7 @@ router.get("/:id", authenticate, authorize("manage_schools"), getSchoolById);
  *   400:
  *     description: Invalid input.
  */
-router.put("/:id", authenticate, authorize("manage_schools"), updateSchool);
+router.put("/:id", authenticate, authorizeRole("manage_schools"), updateSchool);
 
 /**
  * @swagger
@@ -136,6 +136,6 @@ router.put("/:id", authenticate, authorize("manage_schools"), updateSchool);
  *   404:
  *     description: School not found.
  */
-router.delete("/:id", authenticate, authorize("manage_schools"), deleteSchool);
+router.delete("/:id", authenticate, authorizeRole("manage_schools"), deleteSchool);
 
 export default router;

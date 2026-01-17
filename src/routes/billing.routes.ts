@@ -4,7 +4,7 @@ import {
   stripeWebhook,
   getSubscriptionStatus,
 } from "../controllers/billing.controller";
-import { authenticate, authorize } from "../middleware/auth.middleware";
+import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 
 
 const router = Router();
@@ -12,7 +12,7 @@ const router = Router();
 router.post(
   "/initialize",
   authenticate,
-  authorize("ADMIN"),
+  authorizeRole("ADMIN"),
   createSubscriptionSession
 );
 
@@ -25,7 +25,7 @@ router.post(
 router.get(
   "/status/:schoolId",
   authenticate,
-  authorize("admin", "counselor"),
+  authorizeRole("admin", "counselor"),
   getSubscriptionStatus
 );
 

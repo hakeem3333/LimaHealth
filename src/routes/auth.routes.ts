@@ -4,8 +4,8 @@ import { schoolSignup, verifyEmail } from "../controllers/admin/auth.controller"
 import { adminLoginStep1 } from "../controllers/admin/loginAdmin.controller";
 import { adminLoginStep2 } from "../controllers/admin/verifyAdminOtp.controller";
 
-// import { authenticate, authorize } from "../../middleware/auth.middleware";
-import { authenticate, authorize } from "../middleware/auth.middleware";
+// import { authenticate, authorizeRole } from "../../middleware/auth.middleware";
+import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 import {
   uploadCSV,
   bulkUploadUsers,
@@ -23,7 +23,7 @@ router.post("/login", validate(loginSchema), login);
 router.post(
   "/upload",
   authenticate,
-  authorize("ADMIN"),
+  authorizeRole("ADMIN"),
   uploadCSV,
   bulkUploadUsers
 );

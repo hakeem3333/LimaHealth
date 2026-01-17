@@ -211,7 +211,7 @@ model RefreshToken {
 
 model AdminOtp {
   id     String @id @default(uuid())
-  userId String
+  userId    String   @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   codeHash String // 🔐 hashed OTP
