@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
     "merge-schema": "tsx merge-schema.ts",
     "postmerge-schema": "npx prisma generate",
     "build": "npm run merge-schema && tsc",

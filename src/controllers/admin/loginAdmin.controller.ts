@@ -25,10 +25,17 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
   try {
     // ✅ Validate request body
     const parsed = adminLoginSchema.safeParse(req.body);
+
     if (!parsed.success) {
+      // Extract the field errors
+      const fieldErrors = parsed.error.flatten().fieldErrors;
+
+      const firstErrorMessage =
+        Object.values(fieldErrors).flat()[0] || "Invalid input";
+
       return res.status(400).json({
-        message: "Invalid input",
-        errors: parsed.error.flatten().fieldErrors,
+        message: firstErrorMessage,
+        errors: fieldErrors, // Optional: Keep this for structured frontend use
       });
     }
 
@@ -40,14 +47,18 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       include: { role: true },
     });
 
-    if (!user || !["ADMIN", "SUPER_ADMIN"].includes(user.role?.name || "")) {
-      return res.status(401).json({ message: "Invalid credentials" });
+    const ALLOWED_ROLES = ["SCHOOL_ADMIN"];
+
+    if (!user || !ALLOWED_ROLES.includes(user.role?.name ?? "")) {
+      return res.status(403).json({
+        message: "Invalid email or password.",
+      });
     }
 
     // ✅ Check password
     const match = await bcrypt.compare(password, user.passwordHash);
     if (!match) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Invalid email or password." });
     }
 
     // ✅ Delete previous OTPs
@@ -56,11 +67,13 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
     // ✅ Generate secure OTP
     const code = crypto.randomInt(100000, 999999).toString();
 
+    const otpHash = await bcrypt.hash(code, 10);
+
     // ✅ Create new OTP
     await prisma.adminOtp.create({
       data: {
         userId: user.id,
-        code,
+        code: otpHash,
         expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
       },
     });
@@ -75,14 +88,15 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
     });
 
     // ✅ Create short-lived temporary JWT with purpose
-    const tempToken = jwt.sign(
-      { userId: user.id, purpose: "admin-login" },
-      process.env.JWT_SECRET!,
-      { expiresIn: "10m" }
-    );
 
+
+    const tempToken = jwt.sign(
+      { userId: user.id, purpose: "ADMIN_OTP" },
+      process.env.JWT_SECRET!,
+      { expiresIn: "5m" }
+    );
     return res.status(200).json({
-      message: "OTP sent to email",
+      message: "OTP sent to your email",
       tempToken,
     });
   } catch (err) {

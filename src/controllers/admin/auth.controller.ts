@@ -84,7 +84,7 @@ export const schoolSignup = async (req: Request, res: Response) => {
         .json({ message: "A school with this email already exists" });
     }
 
-    // ✅ Check duplicate school name
+    // ✅ Check duplicate school name 
     const existingByName = await prisma.school.findUnique({
       where: { name },
     });
@@ -157,32 +157,79 @@ export const verifyEmail = async (req: Request, res: Response) => {
   try {
     const parseResult = verifyEmailSchema.safeParse(req.query);
     if (!parseResult.success) {
-      return res.status(400).json({
-        message: "Invalid token",
-        errors: parseResult.error.flatten().fieldErrors,
-      });
+      return res.status(400).json({ message: "Invalid token", errors: parseResult.error.flatten()});
     }
 
     const { token } = parseResult.data;
 
     const record = await prisma.emailVerificationToken.findUnique({
       where: { token },
+      include: { school: true },
     });
 
     if (!record) {
-      return res.status(404).send("Token not found or expired");
+      return res.status(404).json({
+        code: "TOKEN_NOT_FOUND",
+        message: "Verification token is invalid.",
+      });
+    }
+
+    if (record.expiresAt < new Date()) {
+      return res.status(410).json({
+        code: "TOKEN_EXPIRED",
+        message: "Verification token has expired.",
+        email: record.school.contact_email, // 👈 useful for retry
+      });
     }
 
     await prisma.school.update({
       where: { id: record.schoolId },
-      data: { status: "PENDING_ACTIVATION" }, // Changed from ACTIVE to PENDING_ACTIVATION
+      data: { status: "PENDING_ACTIVATION" },
     });
 
-    await prisma.emailVerificationToken.delete({ where: { id: record.id } });
+    await prisma.emailVerificationToken.delete({
+      where: { id: record.id },
+    });
 
-    res.send("Email verified successfully! Your school account is now pending approval by the Super Admin.");
+    res.json({
+      verified: true,
+      message:
+        "Email verified successfully! Your school account is now pending approval.",
+    });
   } catch (error) {
     console.error("Error verifying email:", error);
-    res.status(500).send("Internal server error");
+    res.status(500).json({ message: "Internal server error" });
   }
+};
+
+
+export const resendVerificationEmail = async (req: Request, res: Response) => {
+  const { email } = req.body;
+
+  const school = await prisma.school.findUnique({
+    where: { contact_email: email },
+  });
+
+  if (!school) {
+    return res.status(404).json({ message: "School not found" });
+  }
+
+  // Use the same UUID logic as your signup
+  const token = uuidv4();
+
+  await prisma.$transaction([
+    prisma.emailVerificationToken.deleteMany({
+      where: { schoolId: school.id },
+    }),
+    prisma.emailVerificationToken.create({
+      data: {
+        token,
+        schoolId: school.id,
+        expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000), // Match the 3h expiry
+      },
+    }),
+  ]);
+  await sendVerificationEmail(email, token);
+
+  res.json({ message: "Verification email resent." });
 };

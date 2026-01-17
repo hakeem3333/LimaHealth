@@ -19,7 +19,8 @@ transporter.verify().then(() => {
   console.error("❌ Mail server connection failed", err);
 });
 
-const APP_BASE_URL = process.env.APP_BASE_URL || "http://localhost:3000";
+const FRONTEND_BASE_URL =
+  process.env.FRONTEND_BASE_URL || "http://localhost:3001";
 
 // ==============================
 // Generic Send Function
@@ -51,7 +52,7 @@ export const sendEmail = async (options: MailOptions) => {
 // Verification Email
 // ==============================
 export const sendVerificationEmail = async (to: string, token: string) => {
-  const verificationUrl = `${APP_BASE_URL}/api/v1/auth/admin/verify-email?token=${token}`;
+  const verificationUrl = `${FRONTEND_BASE_URL}/verify-email?token=${token}`;
 
   return await sendEmail({
     to,
