@@ -1,10 +1,12 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
+// import cookieParser from "cookie-parser";
 import prisma from "../../services/prisma.service";
 import {
   verifyToken,
   signAccessToken,
   signRefreshToken,
+  hashToken,
 } from "../../utils/jwt.util"; // Use our safe helpers
 import { z } from "zod";
 
@@ -25,7 +27,7 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
     const { otp } = parsed.data;
 
     // 2️⃣ Extract temp token from COOKIES (Not headers)
-    const tempToken = req.cookies.admin_temp_token;
+    const tempToken = req.cookies?.admin_temp_token;
     if (!tempToken) {
       return res
         .status(401)
@@ -92,8 +94,9 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
     // 9️⃣ Store Refresh Token in DB for Rotation/Revocation
     await prisma.refreshToken.create({
       data: {
-        token: refreshToken,
         userId: userId,
+        tokenHash: hashToken(refreshToken),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
       },
     });
 

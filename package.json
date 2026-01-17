@@ -17,6 +17,7 @@
   "license": "ISC",
   "devDependencies": {
     "@prisma/client": "^6.13.0",
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/csv-parse": "^1.2.5",
     "@types/express-session": "^1.18.2",
@@ -35,6 +36,7 @@
     "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "csv-parse": "^6.1.0",
     "dotenv": "^17.2.1",

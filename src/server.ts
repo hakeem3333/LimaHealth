@@ -3,6 +3,7 @@ import type { Application, Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import session from "express-session";
+import cookieParser from "cookie-parser";
 import routes from "./routes";
 import prisma from "./services/prisma.service.js"; // Make sure to use .js for Node ESM
 
@@ -44,6 +45,7 @@ async function startServer() {
       })
     );
     app.use(express.json());
+    app.use(cookieParser());
 
     // API routes
     app.use("/api/v1", routes);
