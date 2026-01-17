@@ -8,93 +8,90 @@ import { z } from "zod";
 // 🧩 Zod Schema
 // =======================
 const createUserSchema = z.object({
-  firstName: z
-    .string({ required_error: "First name is required" })
-    .min(1, "First name cannot be empty"),
-  lastName: z
-    .string({ required_error: "Last name is required" })
-    .min(1, "Last name cannot be empty"),
-  email: z
-    .string({ required_error: "Email is required" })
-    .email("Invalid email format"),
-  password: z
-    .string({ required_error: "Password is required" })
-    .min(8, "Password must be at least 8 characters"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  email: z.string().email("Invalid email format"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 // =======================
-// 🧑‍🏫 Create User Helper
+// Create User Helper
 // =======================
 const createUser = async (
   req: AuthRequest,
   res: Response,
-  role: "COUNSELOR" | "PARENT" | "USER"
+  roleName: "COUNSELOR" | "TEACHER" | "STUDENT", // Fixed role names to match intent
 ) => {
   try {
-    // ✅ Validate request body
+    // 1. Authorization & Context Check
+    const schoolId = req.user?.schoolId;
+    if (!schoolId) {
+      return res
+        .status(403)
+        .json({ message: "Access denied. No school context found." });
+    }
+
+    // 2. Validation
     const parsed = createUserSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
-        message: "Invalid input",
+        message: parsed.error.issues[0].message,
         errors: parsed.error.flatten().fieldErrors,
       });
     }
 
     const { firstName, lastName, email, password } = parsed.data;
-    const schoolId = req.user?.schoolId;
 
-    if (!schoolId) {
-      return res.status(403).json({ message: "No school context" });
-    }
-
-    // ✅ Check if user already exists
+    // 3. Check Duplicates
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      return res.status(409).json({ message: "Email already in use" });
-    }
-
-    const roleRecord = await prisma.role.findUnique({
-      where: { name: role },
-    });
-
-    if (!roleRecord) {
-      return res.status(400).json({ message: `Role '${role}' not found` });
+      return res
+        .status(409)
+        .json({ message: "User with this email already exists." });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // ✅ Create user
+    // 4. Create User with Role Connection
     const user = await prisma.user.create({
       data: {
         firstName,
         lastName,
         email,
         passwordHash,
-        roleId: roleRecord.id,
-        schoolId,
+        school: { connect: { id: schoolId } },
+        role: { connect: { name: roleName } },
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: { select: { name: true } },
+        createdAt: true,
       },
     });
 
     return res.status(201).json({
-      message: `${role.charAt(0)}${role
-        .slice(1)
-        .toLowerCase()} created successfully`,
+      message: `${roleName.toLowerCase()} created successfully`,
       user,
     });
   } catch (err) {
-    console.error(`Error adding ${role.toLowerCase()}:`, err);
-    return res.status(500).json({ message: "Server error" });
+    console.error(`Error adding ${roleName}:`, err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
 // =======================
-// 👥 Controllers
+// Controllers
 // =======================
+
+// Note: Ensure these strings match the 'name' field in your Role table exactly
 export const addCounsellor = (req: AuthRequest, res: Response) =>
   createUser(req, res, "COUNSELOR");
 
 export const addTeacher = (req: AuthRequest, res: Response) =>
-  createUser(req, res, "PARENT");
+  createUser(req, res, "TEACHER");
 
 export const addStudent = (req: AuthRequest, res: Response) =>
-  createUser(req, res, "USER");
+  createUser(req, res, "STUDENT");
