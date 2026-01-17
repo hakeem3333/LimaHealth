@@ -1,9 +1,9 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import prisma from "../../services/prisma.service";
 import { sendEmail } from "../../services/email.service";
+import { signTempToken } from "../../utils/jwt.util"; // Using the helper we created
 import { z } from "zod";
 
 // =======================
@@ -23,25 +23,23 @@ const adminLoginSchema = z.object({
 // =======================
 export const adminLoginStep1 = async (req: Request, res: Response) => {
   try {
-    // ✅ Validate request body
+    // Validate request body
     const parsed = adminLoginSchema.safeParse(req.body);
 
     if (!parsed.success) {
-      // Extract the field errors
       const fieldErrors = parsed.error.flatten().fieldErrors;
-
       const firstErrorMessage =
         Object.values(fieldErrors).flat()[0] || "Invalid input";
 
       return res.status(400).json({
         message: firstErrorMessage,
-        errors: fieldErrors, // Optional: Keep this for structured frontend use
+        errors: fieldErrors,
       });
     }
 
     const { email, password } = parsed.data;
 
-    // ✅ Find user with role
+    // Find user and verify role
     const user = await prisma.user.findUnique({
       where: { email },
       include: { role: true },
@@ -49,55 +47,60 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
 
     const ALLOWED_ROLES = ["SCHOOL_ADMIN"];
 
+    // Security tip: Use a generic error message to prevent account enumeration
     if (!user || !ALLOWED_ROLES.includes(user.role?.name ?? "")) {
-      return res.status(403).json({
+      return res.status(401).json({
         message: "Invalid email or password.",
       });
     }
 
-    // ✅ Check password
+    // Check password
     const match = await bcrypt.compare(password, user.passwordHash);
     if (!match) {
       return res.status(401).json({ message: "Invalid email or password." });
     }
 
-    // ✅ Delete previous OTPs
-    await prisma.adminOtp.deleteMany({ where: { userId: user.id } });
-
-    // ✅ Generate secure OTP
+    // Prepare OTP
     const code = crypto.randomInt(100000, 999999).toString();
-
     const otpHash = await bcrypt.hash(code, 10);
 
-    // ✅ Create new OTP
-    await prisma.adminOtp.create({
-      data: {
+    // Upsert OTP (Update if exists, create if not) to prevent unique constraint errors
+    await prisma.adminOtp.upsert({
+      where: { userId: user.id },
+      update: {
+        codeHash: otpHash,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        attempts: 0, // Reset attempts on new login request
+      },
+      create: {
         userId: user.id,
-        code: otpHash,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+        codeHash: otpHash,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       },
     });
 
-    console.log("Admin login initiated for:", user.email);
-
-    // ✅ Send OTP email
+    // Send OTP email
     await sendEmail({
       to: user.email,
       subject: "Your admin login code",
       text: `Your OTP is ${code}. It expires in 5 minutes.`,
     });
 
-    // ✅ Create short-lived temporary JWT with purpose
+    // Create temporary JWT and set as HTTP-only Cookie
+    // This token only allows access to the /verify-otp route
+    const tempToken = signTempToken({ userId: user.id });
 
+    res.cookie("admin_temp_token", tempToken, {
+      httpOnly: true, // Prevents JS from reading the token (XSS protection)
+      secure: process.env.NODE_ENV === "production", // Only send over HTTPS in prod
+      sameSite: "strict", // Protects against CSRF
+      maxAge: 5 * 60 * 1000, // 5 minutes (matches OTP expiry)
+    });
 
-    const tempToken = jwt.sign(
-      { userId: user.id, purpose: "ADMIN_OTP" },
-      process.env.JWT_SECRET!,
-      { expiresIn: "5m" }
-    );
+    console.log(`Admin login initiated for: ${user.email}`);
+
     return res.status(200).json({
-      message: "OTP sent to your email",
-      tempToken,
+      message: "A verification code has been sent to your email.",
     });
   } catch (err) {
     console.error("Error in admin login step 1:", err);
