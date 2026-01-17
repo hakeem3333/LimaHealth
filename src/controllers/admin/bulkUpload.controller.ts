@@ -1,4 +1,3 @@
-// Updated bulk upload controller
 import type { Response } from "express";
 import type { AuthRequest } from "../../middleware/auth.middleware";
 import multer from "multer";
@@ -12,77 +11,37 @@ import { Parser } from "json2csv";
 import { sendWelcomeEmail } from "../../services/email.service";
 import crypto from "crypto";
 
-// Ensure upload directory exists
 if (!fsSync.existsSync("uploads")) fsSync.mkdirSync("uploads");
 
-// Multer Upload Config
-const upload = multer({ dest: "uploads/" });
+const upload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB Limit
+});
 export const uploadCSV = upload.single("file");
 
-// Zod Schemas
 const userSchema = z.object({
   firstName: z.string().min(1, "Missing first name"),
   lastName: z.string().min(1, "Missing last name"),
   email: z.string().email("Invalid email"),
-  password: z.string().optional(),
-  role: z.enum(["STUDENT", "TEACHER", "COUNSELOR"], {
-    required_error: "Role is required",
-    invalid_type_error: "Role must be STUDENT, TEACHER, or COUNSELOR",
-  }),
+  role: z.enum(["STUDENT", "TEACHER", "COUNSELOR"]),
 });
-
-const bulkUploadRequestSchema = z.object({
-  user: z.object({
-    id: z.string().min(1, "Missing admin ID"),
-    schoolId: z.string().min(1, "Missing school context"),
-    role: z.string(),
-  }),
-  file: z
-    .object({
-      path: z.string(),
-      originalname: z.string(),
-      mimetype: z.string().regex(/csv|excel|text\/plain/, {
-        message: "Invalid file type. Must be CSV",
-      }),
-    })
-    .optional(),
-});
-
-let lastFailedRecords: any[] = [];
 
 export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
   let filePath: string | null = null;
 
   try {
-    if (!req.user || !["ADMIN", "SUPERADMIN"].includes(req.user.role)) {
+    // 1. Authorization Check
+    if (!req.user || !["SCHOOL_ADMIN", "ADMIN"].includes(req.user.role)) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    const parsedRequest = bulkUploadRequestSchema.safeParse({
-      user: req.user,
-      file: req.file,
-    });
-
-    if (!parsedRequest.success) {
-      return res.status(400).json({
-        message: "Invalid upload request",
-        errors: parsedRequest.error.flatten().fieldErrors,
-      });
-    }
-
-    const { user, file } = parsedRequest.data;
-
-    if (!file) {
+    if (!req.file)
       return res.status(400).json({ message: "No CSV file uploaded" });
-    }
 
-    const { id: adminId, schoolId } = user;
+    const { id: adminId, schoolId } = req.user;
+    filePath = req.file.path;
 
-    filePath = file.path;
-    const usersSummary: any[] = [];
-    const failedRecords: any[] = [];
-    let createdCount = 0;
-
+    // 2. Parse CSV
     const fileContent = await fs.readFile(filePath, "utf-8");
     const records = parse(fileContent, {
       columns: true,
@@ -90,98 +49,118 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       trim: true,
     });
 
+    const failedRecords: any[] = [];
+    const successPayloads: any[] = [];
+    const emailPromises: Promise<any>[] = [];
+
+    // 3. Validation Loop (No DB writes here)
     for (const record of records) {
       const parsed = userSchema.safeParse(record);
-
       if (!parsed.success) {
-        const errMsg = parsed.error.issues.map((i) => i.message).join(", ");
-        failedRecords.push({ ...record, error: errMsg });
-        usersSummary.push({ email: record.email || "(no email)", status: "❌ Validation failed" });
+        failedRecords.push({
+          ...record,
+          error: parsed.error.issues[0].message,
+        });
         continue;
       }
 
-      const { firstName, lastName, email, password, role } = parsed.data;
-
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing) {
-        failedRecords.push({ ...record, error: "User already exists" });
-        usersSummary.push({ email, status: "⚠️ Already exists" });
-        continue;
-      }
-
-      const tempPassword = password || crypto.randomBytes(6).toString("base64");
+      const tempPassword = crypto.randomBytes(6).toString("hex");
       const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-      try {
-        await prisma.user.create({
-          data: {
-            firstName,
-            lastName,
-            email,
-            passwordHash,
-            role,
-            schoolId,
-          },
-        });
-
-        createdCount++;
-        usersSummary.push({ email, role, status: "✅ Created" });
-
-        sendWelcomeEmail({
-          to: email,
-          name: `${firstName} ${lastName}`,
-          role,
-          password: tempPassword,
-        }).catch((err) => console.error("Welcome email failed for", email, err));
-      } catch (err: any) {
-        failedRecords.push({ ...record, error: err.message });
-        usersSummary.push({ email, role, status: "❌ Creation failed" });
-      }
+      successPayloads.push({
+        ...parsed.data,
+        passwordHash,
+        schoolId,
+        tempPassword, // kept temporarily for the email
+      });
     }
 
-    await prisma.bulkUploadLog.create({
+    // 4. Batch Create (Much Faster)
+    // We use createMany but filter out existing emails first
+    const emails = successPayloads.map((u) => u.email);
+    const existingUsers = await prisma.user.findMany({
+      where: { email: { in: emails } },
+      select: { email: true },
+    });
+    const existingEmails = new Set(existingUsers.map((u) => u.email));
+
+    const finalUsersToCreate = successPayloads.filter(
+      (u) => !existingEmails.has(u.email),
+    );
+
+    // Track duplicates as failed
+    successPayloads.forEach((u) => {
+      if (existingEmails.has(u.email))
+        failedRecords.push({ ...u, error: "User already exists" });
+    });
+
+    if (finalUsersToCreate.length > 0) {
+      await prisma.user.createMany({
+        data: finalUsersToCreate.map(
+          ({ tempPassword, ...userData }) => userData,
+        ),
+        skipDuplicates: true,
+      });
+
+      // 5. Trigger Emails (Don't await them one-by-one)
+      finalUsersToCreate.forEach((u) => {
+        emailPromises.push(
+          sendWelcomeEmail({
+            to: u.email,
+            name: `${u.firstName} ${u.lastName}`,
+            role: u.role,
+            password: u.tempPassword,
+          }),
+        );
+      });
+    }
+
+    // 6. Log the action
+    const log = await prisma.bulkUploadLog.create({
       data: {
         adminId,
         schoolId,
-        totalRecords: usersSummary.length,
-        createdCount,
+        totalRecords: records.length,
+        createdCount: finalUsersToCreate.length,
         failedCount: failedRecords.length,
-        createdAt: new Date(),
+        // Store errors in DB instead of global variable!
+        errorData: JSON.stringify(failedRecords),
       },
     });
 
-    lastFailedRecords = failedRecords;
-
     return res.status(200).json({
       message: "Bulk upload completed",
-      createdCount,
+      logId: log.id,
+      createdCount: finalUsersToCreate.length,
       failedCount: failedRecords.length,
-      summary: usersSummary,
       failedDownload:
-        failedRecords.length > 0 ? "/api/v1/admin/setup/bulk-upload/failed-csv" : null,
+        failedRecords.length > 0
+          ? `/api/v1/admin/setup/bulk-upload/failed-csv/${log.id}`
+          : null,
     });
   } catch (err) {
-    console.error("Bulk upload error:", err);
-    return res.status(500).json({ message: "Server error during upload" });
+    console.error(err);
+    return res.status(500).json({ message: "Internal server error" });
   } finally {
     if (filePath) await fs.unlink(filePath).catch(() => {});
   }
 };
 
-export const getFailedCSV = async (_req: AuthRequest, res: Response) => {
-  try {
-    if (lastFailedRecords.length === 0)
-      return res.status(404).json({ message: "No failed records available" });
+export const getFailedCSV = async (req: AuthRequest, res: Response) => {
+  const { logId } = req.params;
 
-    const parser = new Parser();
-    const csv = parser.parse(lastFailedRecords);
+  const log = await prisma.bulkUploadLog.findUnique({
+    where: { id: logId },
+  });
 
-    res.header("Content-Type", "text/csv");
-    res.attachment("failed_uploads.csv");
+  if (!log || !log.errorData)
+    return res.status(404).json({ message: "No report found" });
 
-    return res.send(csv);
-  } catch (err) {
-    console.error("Failed CSV generation error:", err);
-    return res.status(500).json({ message: "Could not generate CSV" });
-  }
+  const failedRecords = JSON.parse(log.errorData as string);
+  const parser = new Parser();
+  const csv = parser.parse(failedRecords);
+
+  res.header("Content-Type", "text/csv");
+  res.attachment(`failed_upload_${logId}.csv`);
+  return res.send(csv);
 };
