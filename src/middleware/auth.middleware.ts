@@ -1,45 +1,19 @@
 import type { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
+import { verifyToken } from "../utils/jwt.util"; // Use our ESM-safe utility
 import prisma from "../services/prisma.service";
-import { z } from "zod";
 
 /**
- * Custom Request interface
+ * Enhanced Custom Request interface
  */
 export type AuthRequest = Request & {
   user?: {
     id: string;
-    email: string;
-    roleId: string | null;
-    roleName?: string | null;
-    schoolId?: string | null;
-    permissions?: string[];
+    email?: string;
+    role: string;
+    schoolId: string;
+    permissions: string[];
   };
 };
-
-/* -----------------------------
-   Zod Schemas
------------------------------- */
-
-// Authorization header validator
-const authHeaderSchema = z.object({
-  authorization: z
-    .string()
-    .startsWith("Bearer ", {
-      message: "Authorization header must start with Bearer",
-    })
-    .optional(),
-});
-
-// JWT payload validator
-const jwtPayloadSchema = z
-  .object({
-    userId: z.string().optional(),
-    id: z.string().optional(),
-  })
-  .refine((payload) => payload.userId || payload.id, {
-    message: "Token must contain userId or id",
-  });
 
 /* -----------------------------
    Authenticate Middleware
@@ -48,132 +22,99 @@ const jwtPayloadSchema = z
 export const authenticate = async (
   req: AuthRequest,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
-    // Validate header format
-    authHeaderSchema.parse(req.headers);
+    // 1. Extract from Cookie (instead of Header)
+    const token = req.cookies.access_token;
 
-    if (!req.headers.authorization) {
-      return res.status(401).json({ message: "Missing Authorization header" });
+    if (!token) {
+      return res.status(401).json({ message: "Authentication required" });
     }
 
-    const token = req.headers.authorization.split(" ")[1];
+    // 2. Verify JWT via Utility
+    const { decoded, valid, error } = verifyToken(token);
 
-    if (!process.env.JWT_SECRET) {
-      throw new Error("JWT_SECRET is not set");
+    if (!valid || !decoded) {
+      return res.status(401).json({
+        message:
+          error === "TokenExpiredError" ? "Session expired" : "Invalid token",
+      });
     }
 
-    // Verify JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-      algorithms: ["HS256"],
-    });
+    const payload = decoded as any;
 
-    // Validate payload
-    const payload = jwtPayloadSchema.parse(decoded);
-    const userId = payload.userId || payload.id;
-
-    // Load user + role + permissions from DB (source of truth)
+    // 3. Optional: Cache/Fetch User from DB
+    // To save performance, we can trust the JWT for 15 mins
+    // Or fetch fresh roles if security is critical:
     const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
+      where: { id: payload.sub || payload.userId },
+      select: {
+        id: true,
+        email: true,
+        schoolId: true,
         role: {
-          include: {
+          select: {
+            name: true,
             permissions: {
-              include: {
-                permission: {
-                  select: { name: true },
-                },
-              },
+              select: { permission: { select: { name: true } } },
             },
           },
         },
       },
     });
 
-    if (!user) {
-      return res.status(401).json({ message: "Invalid or expired token" });
+    if (!user || !user.role || !user.schoolId) {
+      return res
+        .status(401)
+        .json({ message: "User no longer exists or lacks permissions" });
     }
 
-    if (!user.roleId || !user.role) {
-      return res.status(403).json({ message: "User has no assigned role" });
-    }
-
-    const permissions =
-      user.role.permissions.map((rp) => rp.permission.name) ?? [];
-
+    // 4. Attach to Request
     req.user = {
       id: user.id,
       email: user.email,
-      roleId: user.roleId,
-      roleName: user.role.name,
+      role: user.role.name,
       schoolId: user.schoolId,
-      permissions,
+      permissions: user.role.permissions.map((p) => p.permission.name),
     };
 
     next();
   } catch (err) {
-    console.error("Auth error:", (err as Error).message);
-    return res.status(401).json({ message: "Unauthorized" });
+    console.error("Middleware Auth Error:", err);
+    return res.status(500).json({ message: "Internal auth error" });
   }
 };
 
 /* -----------------------------
-   Permission Middleware
+   Permission & Role Helpers
 ------------------------------ */
 
-export const authorize =
-  (...requiredPermissions: string[]) =>
-  (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const userPermissions = req.user.permissions ?? [];
-
-    const hasPermission = requiredPermissions.some((perm) =>
-      userPermissions.includes(perm)
-    );
-
-    if (!hasPermission) {
-      return res.status(403).json({
-        message: "Forbidden: Insufficient permissions",
-      });
-    }
-
-    next();
-  };
-
-export const authorizeAll =
-  (...requiredPermissions: string[]) =>
-  (req: AuthRequest, res: Response, next: NextFunction) => {
-    const userPermissions = req.user?.permissions ?? [];
-
-    const hasAll = requiredPermissions.every((perm) =>
-      userPermissions.includes(perm)
-    );
-
-    if (!hasAll) {
-      return res.status(403).json({
-        message: "Forbidden: Missing required permissions",
-      });
-    }
-
-    next();
-  };
-
+// Check if user has AT LEAST ONE of these roles
 export const authorizeRole =
   (...allowedRoles: string[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user?.roleName) {
-      return res.status(401).json({ message: "User role missing" });
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res
+        .status(403)
+        .json({ message: "Access denied: Insufficient role" });
     }
+    next();
+  };
 
-    if (!allowedRoles.includes(req.user.roleName)) {
-      return res.status(403).json({
-        message: "Forbidden: Role access denied",
-      });
+// Check if user has AT LEAST ONE of these permissions
+export const hasPermission =
+  (...requiredPermissions: string[]) =>
+  (req: AuthRequest, res: Response, next: NextFunction) => {
+    const userPermissions = req.user?.permissions || [];
+    const hasMatch = requiredPermissions.some((p) =>
+      userPermissions.includes(p),
+    );
+
+    if (!hasMatch) {
+      return res
+        .status(403)
+        .json({ message: "Access denied: Missing permissions" });
     }
-
     next();
   };
