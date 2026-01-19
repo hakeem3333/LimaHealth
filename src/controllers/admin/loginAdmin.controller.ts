@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
+// import crypto from "crypto";
+import { generateOTP } from "../../utils/otp.util";
 import prisma from "../../services/prisma.service";
 import { sendEmail } from "../../services/email.service";
 import { signTempToken } from "../../utils/jwt.util"; // Using the helper we created
@@ -61,7 +62,7 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
     }
 
     // Prepare OTP
-    const code = crypto.randomInt(100000, 999999).toString();
+    const code = generateOTP();
     const otpHash = await bcrypt.hash(code, 10);
 
     // Upsert OTP (Update if exists, create if not) to prevent unique constraint errors
