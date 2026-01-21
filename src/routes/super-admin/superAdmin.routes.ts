@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, authorizeRole } from "../../middleware/auth.middleware";
+import { authenticateSuperAdmin, authorizeRole } from "../../middleware/auth.middleware";
 import {
   listSchoolAdmins,
   resetAdminPassword,
@@ -25,9 +25,28 @@ import {
   updatePlatformSettings,
 } from "../../controllers/super-admin/superAdminSettings.controller";
 
+import {
+  superAdminRefreshToken,
+} from "../../controllers/super-admin/superAdminRefreshToken.controller"; 
+import { superAdminLoginStep1,
+  superAdminVerifyOtp,  } from "../../controllers/super-admin/auth.controller";
+
 const router = Router();
 
-router.use(authenticate);
+/* -----------------------------
+   Public / Auth Routes 
+   (No middleware here)
+------------------------------ */
+router.post("/login", superAdminLoginStep1);
+router.post("/verify-otp", superAdminVerifyOtp); // This uses the temp cookie, not the access_token
+router.post("/refresh-token", superAdminRefreshToken);
+
+/* -----------------------------
+Protected Routes 
+(Middleware applies to everything below)
+------------------------------ */
+
+router.use(authenticateSuperAdmin);
 router.use(authorizeRole("SUPER_ADMIN"));
 
 router.get("/admins", listSchoolAdmins);

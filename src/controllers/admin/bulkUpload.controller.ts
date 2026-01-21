@@ -8,8 +8,9 @@ import bcrypt from "bcryptjs";
 import prisma from "../../services/prisma.service";
 import { z } from "zod";
 import { Parser } from "json2csv";
-import { sendWelcomeEmail } from "../../services/email.service";
+import XLSX from "xlsx";
 import crypto from "crypto";
+import { sendWelcomeEmail } from "../../services/email.service";
 
 if (!fsSync.existsSync("uploads")) fsSync.mkdirSync("uploads");
 
@@ -17,7 +18,8 @@ const upload = multer({
   dest: "uploads/",
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB Limit
 });
-export const uploadCSV = upload.single("file");
+
+export const uploadFile = upload.single("file");
 
 const userSchema = z.object({
   firstName: z.string().min(1, "Missing first name"),
@@ -30,30 +32,52 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
   let filePath: string | null = null;
 
   try {
-    // 1. Authorization Check
     if (!req.user || !["SCHOOL_ADMIN", "ADMIN"].includes(req.user.role)) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    if (!req.file)
-      return res.status(400).json({ message: "No CSV file uploaded" });
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
     const { id: adminId, schoolId } = req.user;
     filePath = req.file.path;
+    const fileName = req.file.originalname.toLowerCase();
 
-    // 2. Parse CSV
-    const fileContent = await fs.readFile(filePath, "utf-8");
-    const records = parse(fileContent, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
+    let records: any[] = [];
+
+    // 1. Parsing
+    if (fileName.endsWith(".csv")) {
+      const fileContent = await fs.readFile(filePath, "utf-8");
+      records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      });
+    } else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+      const workbook = XLSX.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      records = XLSX.utils.sheet_to_json(worksheet);
+    } else {
+      return res.status(400).json({ message: "Unsupported file format." });
+    }
+
+    // 2. Fetch Role IDs from DB (Matches your RBAC Schema)
+    const dbRoles = await prisma.role.findMany({
+      where: { name: { in: ["STUDENT", "TEACHER", "COUNSELOR"] } },
     });
+
+    const roleMap = dbRoles.reduce(
+      (acc, r) => {
+        acc[r.name] = r.id;
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
 
     const failedRecords: any[] = [];
     const successPayloads: any[] = [];
-    const emailPromises: Promise<any>[] = [];
 
-    // 3. Validation Loop (No DB writes here)
+    // 3. Validation & Mapping
     for (const record of records) {
       const parsed = userSchema.safeParse(record);
       if (!parsed.success) {
@@ -64,19 +88,31 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         continue;
       }
 
+      const roleId = roleMap[parsed.data.role];
+      if (!roleId) {
+        failedRecords.push({
+          ...record,
+          error: `Role ${parsed.data.role} does not exist in DB`,
+        });
+        continue;
+      }
+
       const tempPassword = crypto.randomBytes(6).toString("hex");
       const passwordHash = await bcrypt.hash(tempPassword, 10);
 
       successPayloads.push({
-        ...parsed.data,
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+        email: parsed.data.email,
+        roleId: roleId, // Map to actual field in schema
+        originalRoleName: parsed.data.role, // Kept for email service
         passwordHash,
         schoolId,
-        tempPassword, // kept temporarily for the email
+        tempPassword,
       });
     }
 
-    // 4. Batch Create (Much Faster)
-    // We use createMany but filter out existing emails first
+    // 4. Filter duplicates
     const emails = successPayloads.map((u) => u.email);
     const existingUsers = await prisma.user.findMany({
       where: { email: { in: emails } },
@@ -88,43 +124,40 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       (u) => !existingEmails.has(u.email),
     );
 
-    // Track duplicates as failed
     successPayloads.forEach((u) => {
       if (existingEmails.has(u.email))
         failedRecords.push({ ...u, error: "User already exists" });
     });
 
+    // 5. Batch Insert
     if (finalUsersToCreate.length > 0) {
       await prisma.user.createMany({
         data: finalUsersToCreate.map(
-          ({ tempPassword, ...userData }) => userData,
+          ({ tempPassword, originalRoleName, ...userData }) => userData,
         ),
         skipDuplicates: true,
       });
 
-      // 5. Trigger Emails (Don't await them one-by-one)
+      // 6. Background Emails
       finalUsersToCreate.forEach((u) => {
-        emailPromises.push(
-          sendWelcomeEmail({
-            to: u.email,
-            name: `${u.firstName} ${u.lastName}`,
-            role: u.role,
-            password: u.tempPassword,
-          }),
-        );
+        sendWelcomeEmail({
+          to: u.email,
+          name: `${u.firstName} ${u.lastName}`,
+          role: u.originalRoleName,
+          password: u.tempPassword,
+        }).catch((err) => console.error("Email failed:", u.email, err));
       });
     }
 
-    // 6. Log the action
+    // 7. Log
     const log = await prisma.bulkUploadLog.create({
       data: {
         adminId,
-        schoolId,
+        schoolId: schoolId!,
         totalRecords: records.length,
         createdCount: finalUsersToCreate.length,
         failedCount: failedRecords.length,
-        // Store errors in DB instead of global variable!
-        errorData: JSON.stringify(failedRecords),
+        // Optional: you might need to add errorData to your BulkUploadLog model if not there
       },
     });
 
@@ -148,15 +181,15 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
 
 export const getFailedCSV = async (req: AuthRequest, res: Response) => {
   const { logId } = req.params;
+  const log = await prisma.bulkUploadLog.findUnique({ where: { id: logId } });
 
-  const log = await prisma.bulkUploadLog.findUnique({
-    where: { id: logId },
-  });
+  if (!log) return res.status(404).json({ message: "No report found" });
 
-  if (!log || !log.errorData)
-    return res.status(404).json({ message: "No report found" });
-
-  const failedRecords = JSON.parse(log.errorData as string);
+  // Note: Ensure your schema supports storing the error data strings
+  // If not, this part will need the errorData field added to BulkUploadLog
+  const failedRecords = log.errorData
+    ? JSON.parse(log.errorData as string)
+    : [];
   const parser = new Parser();
   const csv = parser.parse(failedRecords);
 

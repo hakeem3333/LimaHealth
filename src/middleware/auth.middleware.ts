@@ -1,16 +1,13 @@
 import type { Request, Response, NextFunction } from "express";
-import { verifyToken } from "../utils/jwt.util"; // Use our ESM-safe utility
+import { verifyToken } from "../utils/jwt.util";
 import prisma from "../services/prisma.service";
 
-/**
- * Enhanced Custom Request interface
- */
 export type AuthRequest = Request & {
   user?: {
     id: string;
     email?: string;
     role: string;
-    schoolId: string;
+    schoolId?: string;
     permissions: string[];
   };
 };
@@ -25,17 +22,17 @@ export const authenticate = async (
   next: NextFunction,
 ) => {
   try {
-    // 1. Extract from Cookie (instead of Header)
     const token = req.cookies.access_token;
 
     if (!token) {
+      console.log("DEBUG [Auth Middleware]: No access_token cookie found.");
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    // 2. Verify JWT via Utility
     const { decoded, valid, error } = verifyToken(token);
 
     if (!valid || !decoded) {
+      console.log("DEBUG [Auth Middleware]: Token invalid. Error:", error);
       return res.status(401).json({
         message:
           error === "TokenExpiredError" ? "Session expired" : "Invalid token",
@@ -43,12 +40,10 @@ export const authenticate = async (
     }
 
     const payload = decoded as any;
+    const userId = payload.sub || payload.userId;
 
-    // 3. Optional: Cache/Fetch User from DB
-    // To save performance, we can trust the JWT for 15 mins
-    // Or fetch fresh roles if security is critical:
     const user = await prisma.user.findUnique({
-      where: { id: payload.sub || payload.userId },
+      where: { id: userId },
       select: {
         id: true,
         email: true,
@@ -65,12 +60,14 @@ export const authenticate = async (
     });
 
     if (!user || !user.role || !user.schoolId) {
+      console.log(
+        `DEBUG [Auth Middleware]: User ${userId} check failed. Exists: ${!!user}, Has Role: ${!!user?.role}, Has School: ${!!user?.schoolId}`,
+      );
       return res
         .status(401)
         .json({ message: "User no longer exists or lacks permissions" });
     }
 
-    // 4. Attach to Request
     req.user = {
       id: user.id,
       email: user.email,
@@ -81,7 +78,69 @@ export const authenticate = async (
 
     next();
   } catch (err) {
-    console.error("Middleware Auth Error:", err);
+    console.error("DEBUG [Auth Middleware]: CRITICAL ERROR:", err);
+    return res.status(500).json({ message: "Internal auth error" });
+  }
+};
+
+/* -----------------------------
+   Authenticate Super Admin
+------------------------------ */
+
+export const authenticateSuperAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const token = req.cookies.super_access_token;
+    console.log("DEBUG [SuperAdmin Auth]: Checking for super_access_token...");
+
+    if (!token) {
+      console.log(
+        "DEBUG [SuperAdmin Auth]: No super_access_token cookie found.",
+      );
+      return res.status(401).json({ message: "Super Admin access required" });
+    }
+
+    const { decoded, valid, error } = verifyToken(token);
+
+    if (!valid || (decoded as any).role !== "SUPER_ADMIN") {
+      console.log(
+        `DEBUG [SuperAdmin Auth]: Token invalid or role mismatch. Role in JWT: ${(decoded as any)?.role}. Error: ${error}`,
+      );
+      return res
+        .status(401)
+        .json({ message: "Invalid or unauthorized session" });
+    }
+
+    const userId = (decoded as any).sub || (decoded as any).userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
+
+    if (!user || user.role.name !== "SUPER_ADMIN") {
+      console.log(
+        `DEBUG [SuperAdmin Auth]: DB check failed. User found: ${!!user}, Actual Role: ${user?.role.name}`,
+      );
+      return res
+        .status(403)
+        .json({ message: "Access restricted to Super Admins" });
+    }
+
+    req.user = {
+      id: user.id,
+      email: user.email!,
+      role: user.role.name,
+      schoolId: user.schoolId!,
+      permissions: [],
+    };
+
+    console.log("DEBUG [SuperAdmin Auth]: Verification successful.");
+    next();
+  } catch (err) {
+    console.error("DEBUG [SuperAdmin Auth]: CRITICAL ERROR:", err);
     return res.status(500).json({ message: "Internal auth error" });
   }
 };
@@ -90,11 +149,13 @@ export const authenticate = async (
    Permission & Role Helpers
 ------------------------------ */
 
-// Check if user has AT LEAST ONE of these roles
 export const authorizeRole =
   (...allowedRoles: string[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user || !allowedRoles.includes(req.user.role)) {
+      console.log(
+        `DEBUG [Role Guard]: Access denied. User role: ${req.user?.role}. Allowed: ${allowedRoles}`,
+      );
       return res
         .status(403)
         .json({ message: "Access denied: Insufficient role" });
@@ -102,7 +163,6 @@ export const authorizeRole =
     next();
   };
 
-// Check if user has AT LEAST ONE of these permissions
 export const hasPermission =
   (...requiredPermissions: string[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -112,6 +172,9 @@ export const hasPermission =
     );
 
     if (!hasMatch) {
+      console.log(
+        `DEBUG [Permission Guard]: Access denied. Required: ${requiredPermissions}. User has: ${userPermissions}`,
+      );
       return res
         .status(403)
         .json({ message: "Access denied: Missing permissions" });

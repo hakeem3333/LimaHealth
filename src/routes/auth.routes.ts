@@ -7,7 +7,7 @@ import { adminLoginStep2 } from "../controllers/admin/verifyAdminOtp.controller"
 // import { authenticate, authorizeRole } from "../../middleware/auth.middleware";
 import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 import {
-  uploadCSV,
+  uploadFile,
   bulkUploadUsers,
 } from "../controllers/admin/bulkUpload.controller";
 
@@ -23,9 +23,9 @@ router.post("/login", validate(loginSchema), login);
 router.post(
   "/upload",
   authenticate,
-  authorizeRole("ADMIN"),
-  uploadCSV,
-  bulkUploadUsers
+  authorizeRole("SCHOOL_ADMIN"),
+  uploadFile,
+  bulkUploadUsers,
 );
 
 router.post("/admin/signup", schoolSignup);
