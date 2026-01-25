@@ -13,6 +13,7 @@ import {
 
 import { login, loginSchema } from "../controllers/user/auth/login.controller";
 import validate from "../middleware/validate.middleware";
+import { getMe } from "../controllers/admin/auth.controller.js";
 
 const router = Router();
 
@@ -33,6 +34,9 @@ router.get("/admin/verify-email", verifyEmail);
 router.post("/admin/login", adminLoginStep1);
 router.post("/admin/verify-otp", adminLoginStep2);
 
-
+router.get("/me",
+   authenticate,
+  authorizeRole("SCHOOL_ADMIN"), 
+  getMe);
 
 export default router;

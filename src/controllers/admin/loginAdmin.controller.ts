@@ -24,7 +24,6 @@ const adminLoginSchema = z.object({
 // =======================
 export const adminLoginStep1 = async (req: Request, res: Response) => {
   try {
-    // Validate request body
     const parsed = adminLoginSchema.safeParse(req.body);
 
     if (!parsed.success) {
@@ -40,38 +39,60 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
 
     const { email, password } = parsed.data;
 
-    // Find user and verify role
+    // 1. Fetch user, their role, and their school status
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { role: true },
+      include: {
+        role: true,
+        school: true, // 👈 Include school to check status
+      },
     });
 
     const ALLOWED_ROLES = ["SCHOOL_ADMIN"];
 
-    // Security tip: Use a generic error message to prevent account enumeration
     if (!user || !ALLOWED_ROLES.includes(user.role?.name ?? "")) {
       return res.status(401).json({
         message: "Invalid email or password.",
       });
     }
 
-    // Check password
+    // 2. Check if the school is fully activated
+    if (user.school) {
+      if (user.school.status === "PENDING_EMAIL_VERIFICATION") {
+        return res.status(403).json({
+          message: "Please verify your email before logging in.",
+        });
+      }
+
+      if (user.school.status === "PENDING_ACTIVATION") {
+        return res.status(403).json({
+          message: "Your school account is pending LimaHealth Admin approval.",
+        });
+      }
+
+      if (user.school.status !== "ACTIVE") {
+        return res.status(403).json({
+          message: "Your school account is currently inactive or suspended.",
+        });
+      }
+    }
+
+    // 3. Check password
     const match = await bcrypt.compare(password, user.passwordHash);
     if (!match) {
       return res.status(401).json({ message: "Invalid email or password." });
     }
 
-    // Prepare OTP
+    // 4. Prepare OTP
     const code = generateOTP();
     const otpHash = await bcrypt.hash(code, 10);
 
-    // Upsert OTP (Update if exists, create if not) to prevent unique constraint errors
     await prisma.adminOtp.upsert({
       where: { userId: user.id },
       update: {
         codeHash: otpHash,
         expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-        attempts: 0, // Reset attempts on new login request
+        attempts: 0,
       },
       create: {
         userId: user.id,
@@ -80,22 +101,20 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       },
     });
 
-    // Send OTP email
+    // 5. Send OTP email
     await sendEmail({
       to: user.email,
       subject: "Your admin login code",
       text: `Your OTP is ${code}. It expires in 5 minutes.`,
     });
 
-    // Create temporary JWT and set as HTTP-only Cookie
-    // This token only allows access to the /verify-otp route
     const tempToken = signTempToken({ userId: user.id });
 
     res.cookie("admin_temp_token", tempToken, {
-      httpOnly: true, // Prevents JS from reading the token (XSS protection)
-      secure: process.env.NODE_ENV === "production", // Only send over HTTPS in prod
-      sameSite: "strict", // Protects against CSRF
-      maxAge: 5 * 60 * 1000, // 5 minutes (matches OTP expiry)
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 5 * 60 * 1000,
     });
 
     console.log(`Admin login initiated for: ${user.email}`);

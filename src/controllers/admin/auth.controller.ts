@@ -87,7 +87,7 @@ export const schoolSignup = async (req: Request, res: Response) => {
       await tx.emailVerificationToken.create({
         data: {
           schoolId: school.id,
-          token: tokenHash, // Store the hash, not the raw UUID
+          tokenHash, // Store the hash, not the raw UUID
           expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
         },
       });
@@ -126,7 +126,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
     const incomingHash = hashToken(token);
 
     const record = await prisma.emailVerificationToken.findUnique({
-      where: { token: incomingHash },
+      where: { tokenHash: incomingHash },
       include: { school: true },
     });
 
@@ -200,5 +200,28 @@ export const resendVerificationEmail = async (req: Request, res: Response) => {
     return res.json({ message: "Verification email resent." });
   } catch (error) {
     return res.status(500).json({ message: "Error resending email" });
+  }
+};
+
+export const getMe = async (req: Request, res: Response) => {
+  try {
+    // req.user is populated by your authMiddleware
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        schoolId: true,
+        role: { select: { name: true } },
+      },
+    });
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    return res.status(200).json(user);
+  } catch (error) {
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
