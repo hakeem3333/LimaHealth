@@ -17,11 +17,11 @@ export const createSubscriptionSession = async (
     }
 
     const priceId =
-      planTier === "basic"
+      planTier === "monthly"
         ? process.env.STRIPE_BASIC_PRICE
-        : planTier === "standard"
-        ? process.env.STRIPE_STANDARD_PRICE
-        : process.env.STRIPE_PREMIUM_PRICE;
+        : planTier === "yearly"
+          ? process.env.STRIPE_STANDARD_PRICE
+          : null;
 
     if (!priceId) {
       return res.status(400).json({ error: "Invalid plan tier." });
