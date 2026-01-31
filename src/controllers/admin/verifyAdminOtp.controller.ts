@@ -1,13 +1,12 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-// import cookieParser from "cookie-parser";
 import prisma from "../../services/prisma.service";
 import {
   verifyToken,
   signAccessToken,
   signRefreshToken,
   hashToken,
-} from "../../utils/jwt.util"; // Use our safe helpers
+} from "../../utils/jwt.util";
 import { z } from "zod";
 
 const otpSchema = z.object({
@@ -89,7 +88,7 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
     await prisma.adminOtp.delete({ where: { userId } });
     res.clearCookie("admin_temp_token");
 
-    // 8️⃣ Issue Real Access + Refresh Tokens (Using DB role, not hardcoded string)
+    // 8️⃣ Issue Real Access + Refresh Tokens
     const accessToken = signAccessToken({
       sub: userId,
       role: user.role.name,
@@ -107,27 +106,40 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
     });
 
     // 🔟 Set Security Cookies
+    const isProd = process.env.NODE_ENV === "production";
+
     res.cookie("access_token", accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProd,
       sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
+      maxAge: 15 * 60 * 1000, // 15 mins
     });
 
     res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProd,
       sameSite: "strict",
       path: "/auth/refresh",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
+
+    // 🆕 Set School Status Cookie for Next.js Middleware
+    if (user.school?.status) {
+      res.cookie("school_status", user.school.status, {
+        httpOnly: false, // Middleware needs to read this
+        secure: isProd,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // Sync with refresh token
+      });
+    }
 
     return res.status(200).json({
       message: "Login successful",
       user: {
         id: userId,
         role: user.role.name,
-        schoolStatus: user.school?.status, // 👈 Vital for frontend redirection
+        schoolStatus: user.school?.status,
       },
     });
   } catch (err) {
