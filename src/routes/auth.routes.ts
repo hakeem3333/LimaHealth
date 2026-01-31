@@ -9,6 +9,7 @@ import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 import {
   uploadFile,
   bulkUploadUsers,
+  getFailedCSV,
 } from "../controllers/admin/bulkUpload.controller";
 
 import { login, loginSchema } from "../controllers/user/auth/login.controller";
@@ -27,6 +28,13 @@ router.post(
   authorizeRole("SCHOOL_ADMIN"),
   uploadFile,
   bulkUploadUsers,
+);
+
+router.get(
+  "/setup/bulk-upload/failed-csv/:logId",
+  authenticate,
+  authorizeRole("SCHOOL_ADMIN"),
+  getFailedCSV,
 );
 
 router.post("/admin/signup", schoolSignup);

@@ -11,9 +11,11 @@ datasource db {
 
 enum SchoolStatus {
   PENDING_EMAIL_VERIFICATION
-  PENDING_ACTIVATION // Added for SuperAdmin approval workflow
-  ACTIVE
+  PENDING_ACTIVATION // SuperAdmin must approve first
+  PAYMENT_REQUIRED   // Approved by SuperAdmin, but needs active subscription
+  ACTIVE             // Fully operational
   SUSPENDED
+  EXPIRED            // Subscription ran out
 }
 
 enum AppointmentStatus {
@@ -23,8 +25,10 @@ enum AppointmentStatus {
   CANCELLED
 }
 
+// 
+
 //
-// NEW RBAC MODELS (UPDATED)
+// NEW RBAC MODELS
 //
 model Role {
   id          String           @id @default(cuid())
@@ -60,13 +64,13 @@ model RolePermission {
 //
 
 model School {
-  id                      String                   @id @default(uuid())
-  name                    String                   @unique
-  contact_email           String                   @unique
+  id                      String                  @id @default(uuid())
+  name                    String                  @unique
+  contact_email           String                  @unique
   website                 String?
-  status                  SchoolStatus             @default(PENDING_EMAIL_VERIFICATION)
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
+  status                  SchoolStatus            @default(PENDING_EMAIL_VERIFICATION)
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
   users                   User[]
   subscriptions           Subscription[]
   emailVerificationTokens EmailVerificationToken[]
@@ -79,9 +83,9 @@ model School {
 model Subscription {
   id                   String   @id @default(uuid())
   schoolId             String
-  stripeSubscriptionId String
-  planTier             String
-  status               String
+  stripeSubscriptionId String   @unique
+  planTier             String   // e.g., "BASIC", "PREMIUM"
+  status               String   // e.g., "active", "canceled", "past_due"
   currentPeriodEnd     DateTime
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
@@ -90,7 +94,7 @@ model Subscription {
 
 model User {
   id           String     @id @default(uuid())
-  schoolId     String? // Optional for global users
+  schoolId     String? 
   roleId       String?
   role         Role?      @relation(fields: [roleId], references: [id])
   school       School?    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
@@ -113,19 +117,14 @@ model User {
 
   bulkUploadLogs BulkUploadLog[] @relation("AdminBulkUploads")
 
-  // Appointments
   appointmentsAsStudent   Appointment[] @relation("StudentAppointments")
   appointmentsAsCounselor Appointment[] @relation("CounselorAppointments")
 
   refreshTokens RefreshToken[]
+  aiAnalyses    AIAnalysis[]
+  auditLogs     AuditLog[]
 
-  // AI Analysis
-  aiAnalyses AIAnalysis[]
-
-  // Audit Logs
-  auditLogs AuditLog[]
-
-  @@index([schoolId]) // Index for faster queries by school
+  @@index([schoolId])
 }
 
 model BiometricLog {
@@ -210,13 +209,11 @@ model RefreshToken {
 }
 
 model AdminOtp {
-  id     String @id @default(uuid())
-  userId    String   @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  codeHash String // 🔐 hashed OTP
+  id       String @id @default(uuid())
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash String 
   attempts Int    @default(0)
-
   expiresAt DateTime
   createdAt DateTime @default(now())
 
@@ -230,6 +227,7 @@ model BulkUploadLog {
   totalRecords Int
   createdCount Int
   failedCount  Int
+  errorData    Json?    // 👈 Added to store failed records for the CSV download
   createdAt    DateTime @default(now())
 
   admin  User   @relation("AdminBulkUploads", fields: [adminId], references: [id])
@@ -256,30 +254,22 @@ model AuditLog {
 model PlatformSettings {
   id String @id @default("global")
 
-  // 🏫 School lifecycle
   allowSchoolSignup        Boolean      @default(true)
   defaultSchoolStatus      SchoolStatus @default(PENDING_EMAIL_VERIFICATION)
   requireEmailVerification Boolean      @default(true)
 
-  // 🔐 Security
   adminOtpsExpiryMinutes Int     @default(10)
   enforceAuditLogging    Boolean @default(true)
 
-  // 📡 Platform features
   enableWearables Boolean @default(true)
   enableAlerts    Boolean @default(true)
 
-  // 📦 Data & compliance
   dataRetentionMonths  Int     @default(12)
   enforceAnonymization Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
-//
-// NEW MODELS FOR APPOINTMENTS & AI
-//
 
 model Appointment {
   id          String            @id @default(uuid())
@@ -300,7 +290,7 @@ model Appointment {
 model AIAnalysis {
   id         String   @id @default(uuid())
   userId     String
-  context    String // e.g. "mood_log", "biometric_summary"
+  context    String 
   inputJson  Json
   outputJson Json
   createdAt  DateTime @default(now())

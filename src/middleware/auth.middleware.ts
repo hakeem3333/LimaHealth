@@ -152,14 +152,17 @@ export const authenticateSuperAdmin = async (
 export const authorizeRole =
   (...allowedRoles: string[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
+    const userRole = req.user?.role; // Already a string from authenticate()
+
+    if (!req.user || !userRole || !allowedRoles.includes(userRole)) {
       console.log(
-        `DEBUG [Role Guard]: Access denied. User role: ${req.user?.role}. Allowed: ${allowedRoles}`,
+        `DEBUG [Role Guard]: Access denied. User role: "${userRole}". Allowed: [${allowedRoles}]`,
       );
       return res
         .status(403)
         .json({ message: "Access denied: Insufficient role" });
     }
+
     next();
   };
 

@@ -37,8 +37,8 @@ export const createStripeCheckoutSession = async ({
         },
       },
 
-      success_url: `${process.env.FRONTEND_URL}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/billing/cancel`,
+      success_url: `${process.env.FRONTEND_BASE_URL}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_BASE_URL}/billing/cancel`,
     });
 
     return session;

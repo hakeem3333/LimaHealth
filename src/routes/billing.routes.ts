@@ -12,8 +12,8 @@ const router = Router();
 router.post(
   "/initialize",
   authenticate,
-  authorizeRole("ADMIN"),
-  createSubscriptionSession
+  authorizeRole("SCHOOL_ADMIN"),
+  createSubscriptionSession,
 );
 
 router.post(
@@ -25,8 +25,8 @@ router.post(
 router.get(
   "/status/:schoolId",
   authenticate,
-  authorizeRole("admin", "counselor"),
-  getSubscriptionStatus
+  authorizeRole("SCHOOL_ADMIN."),
+  getSubscriptionStatus,
 );
 
 export default router;
