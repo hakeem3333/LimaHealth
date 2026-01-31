@@ -25,14 +25,12 @@ export const authenticate = async (
     const token = req.cookies.access_token;
 
     if (!token) {
-      console.log("DEBUG [Auth Middleware]: No access_token cookie found.");
       return res.status(401).json({ message: "Authentication required" });
     }
 
     const { decoded, valid, error } = verifyToken(token);
 
     if (!valid || !decoded) {
-      console.log("DEBUG [Auth Middleware]: Token invalid. Error:", error);
       return res.status(401).json({
         message:
           error === "TokenExpiredError" ? "Session expired" : "Invalid token",
@@ -48,6 +46,9 @@ export const authenticate = async (
         id: true,
         email: true,
         schoolId: true,
+        school: {
+          select: { status: true },
+        },
         role: {
           select: {
             name: true,
@@ -59,20 +60,47 @@ export const authenticate = async (
       },
     });
 
-    if (!user || !user.role || !user.schoolId) {
-      console.log(
-        `DEBUG [Auth Middleware]: User ${userId} check failed. Exists: ${!!user}, Has Role: ${!!user?.role}, Has School: ${!!user?.schoolId}`,
-      );
-      return res
-        .status(401)
-        .json({ message: "User no longer exists or lacks permissions" });
+    if (!user || !user.role) {
+      return res.status(401).json({ message: "User account no longer exists" });
+    }
+
+    // 🛡️ NEW: Billing & Activation Guard
+    // If the user belongs to a school, check the school's lifecycle status
+    if (user.schoolId && user.school) {
+      const status = user.school.status;
+
+      if (status === "PENDING_ACTIVATION") {
+        return res
+          .status(403)
+          .json({ message: "Your school is awaiting admin approval." });
+      }
+
+      if (status === "PAYMENT_REQUIRED") {
+        return res.status(402).json({
+          message: "Payment Required",
+          code: "SUBSCRIPTION_REQUIRED",
+        });
+      }
+
+      if (status === "EXPIRED") {
+        return res.status(402).json({
+          message: "Subscription Expired",
+          code: "SUBSCRIPTION_EXPIRED",
+        });
+      }
+
+      if (status === "SUSPENDED") {
+        return res
+          .status(403)
+          .json({ message: "School access has been suspended." });
+      }
     }
 
     req.user = {
       id: user.id,
       email: user.email,
       role: user.role.name,
-      schoolId: user.schoolId,
+      schoolId: user.schoolId || undefined,
       permissions: user.role.permissions.map((p) => p.permission.name),
     };
 
@@ -94,21 +122,14 @@ export const authenticateSuperAdmin = async (
 ) => {
   try {
     const token = req.cookies.super_access_token;
-    console.log("DEBUG [SuperAdmin Auth]: Checking for super_access_token...");
 
     if (!token) {
-      console.log(
-        "DEBUG [SuperAdmin Auth]: No super_access_token cookie found.",
-      );
       return res.status(401).json({ message: "Super Admin access required" });
     }
 
-    const { decoded, valid, error } = verifyToken(token);
+    const { decoded, valid } = verifyToken(token);
 
     if (!valid || (decoded as any).role !== "SUPER_ADMIN") {
-      console.log(
-        `DEBUG [SuperAdmin Auth]: Token invalid or role mismatch. Role in JWT: ${(decoded as any)?.role}. Error: ${error}`,
-      );
       return res
         .status(401)
         .json({ message: "Invalid or unauthorized session" });
@@ -120,10 +141,8 @@ export const authenticateSuperAdmin = async (
       include: { role: true },
     });
 
-    if (!user || user.role.name !== "SUPER_ADMIN") {
-      console.log(
-        `DEBUG [SuperAdmin Auth]: DB check failed. User found: ${!!user}, Actual Role: ${user?.role.name}`,
-      );
+    // Super Admins usually don't have a schoolId, so we check role name only
+    if (!user || user.role?.name !== "SUPER_ADMIN") {
       return res
         .status(403)
         .json({ message: "Access restricted to Super Admins" });
@@ -133,11 +152,10 @@ export const authenticateSuperAdmin = async (
       id: user.id,
       email: user.email!,
       role: user.role.name,
-      schoolId: user.schoolId!,
+      schoolId: user.schoolId || undefined,
       permissions: [],
     };
 
-    console.log("DEBUG [SuperAdmin Auth]: Verification successful.");
     next();
   } catch (err) {
     console.error("DEBUG [SuperAdmin Auth]: CRITICAL ERROR:", err);
@@ -152,12 +170,9 @@ export const authenticateSuperAdmin = async (
 export const authorizeRole =
   (...allowedRoles: string[]) =>
   (req: AuthRequest, res: Response, next: NextFunction) => {
-    const userRole = req.user?.role; // Already a string from authenticate()
+    const userRole = req.user?.role;
 
     if (!req.user || !userRole || !allowedRoles.includes(userRole)) {
-      console.log(
-        `DEBUG [Role Guard]: Access denied. User role: "${userRole}". Allowed: [${allowedRoles}]`,
-      );
       return res
         .status(403)
         .json({ message: "Access denied: Insufficient role" });
@@ -175,9 +190,6 @@ export const hasPermission =
     );
 
     if (!hasMatch) {
-      console.log(
-        `DEBUG [Permission Guard]: Access denied. Required: ${requiredPermissions}. User has: ${userPermissions}`,
-      );
       return res
         .status(403)
         .json({ message: "Access denied: Missing permissions" });
