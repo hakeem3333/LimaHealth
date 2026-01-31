@@ -12,6 +12,34 @@ export const getSchoolDashboard = async (req: AuthRequest, res: Response) => {
   }
 
   try {
+    // 🛡️ 1. Fetch School Status first
+    const school = await prisma.school.findUnique({
+      where: { id: schoolId },
+      select: { status: true },
+    });
+
+    // 🛡️ 2. Billing/Activation Gate
+    if (!school || school.status !== "ACTIVE") {
+      if (school?.status === "PAYMENT_REQUIRED") {
+        return res.status(402).json({
+          message: "Payment Required",
+          reason: "SUBSCRIPTION_REQUIRED",
+        });
+      }
+
+      if (school?.status === "EXPIRED") {
+        return res.status(402).json({
+          message: "Subscription Expired",
+          reason: "SUBSCRIPTION_EXPIRED",
+        });
+      }
+
+      return res.status(403).json({
+        message: `Dashboard access restricted. Status: ${school?.status || "Unknown"}`,
+      });
+    }
+
+    // 3. Main Data Fetch (Only runs if school is ACTIVE)
     const [
       studentsCount,
       counselorsCount,
