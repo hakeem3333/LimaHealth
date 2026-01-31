@@ -6,9 +6,11 @@ import type { AuthRequest } from "../../middleware/auth.middleware";
 
 export const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(6),
-    newPassword: z.string().min(8),
-    confirmPassword: z.string().min(8),
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z
+      .string()
+      .min(8, "New password must be at least 8 characters"),
+    confirmPassword: z.string().min(8, "Please confirm your new password"),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
     message: "Passwords do not match",
@@ -16,48 +18,72 @@ export const changePasswordSchema = z
   });
 
 export async function changeAdminPassword(req: AuthRequest, res: Response) {
-  const parsed = changePasswordSchema.safeParse(req.body);
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body);
 
-  if (!parsed.success) {
-    return res.status(400).json({
-      message: "Validation error",
-      errors: parsed.error.flatten(),
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Validation error",
+        errors: parsed.error.flatten().fieldErrors,
+      });
+    }
+
+    const { currentPassword, newPassword } = parsed.data;
+
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // 1. Fetch user and their school status
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { school: true },
     });
-  }
 
-  const { currentPassword, newPassword } = parsed.data;
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
-  if (!req.user) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
+    // 🛡️ 2. Lifecycle Guard
+    // We allow PASSWORD CHANGES for ACTIVE, PAYMENT_REQUIRED, and EXPIRED.
+    // We BLOCK for SUSPENDED or PENDING_ACTIVATION.
+    if (user.school) {
+      const status = user.school.status;
+      if (status === "SUSPENDED") {
+        return res
+          .status(403)
+          .json({ message: "Account suspended. Contact support." });
+      }
+      if (status === "PENDING_ACTIVATION") {
+        return res.status(403).json({ message: "Account pending activation." });
+      }
+    }
 
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-  });
+    // 3. Verify current password
+    const passwordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash,
+    );
 
-  if (!user) {
-    return res.status(404).json({ message: "User not found" });
-  }
+    if (!passwordValid) {
+      return res.status(400).json({
+        message: "Current password is incorrect",
+      });
+    }
 
-  const passwordValid = await bcrypt.compare(
-    currentPassword,
-    user.passwordHash
-  );
+    // 4. Update password
+    const newHash = await bcrypt.hash(newPassword, 12);
 
-  if (!passwordValid) {
-    return res.status(400).json({
-      message: "Current password is incorrect",
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: newHash },
     });
+
+    return res.json({
+      message: "Password updated successfully",
+    });
+  } catch (error) {
+    console.error("Change Password Error:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
-
-  const newHash = await bcrypt.hash(newPassword, 12);
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { passwordHash: newHash },
-  });
-
-  return res.json({
-    message: "Password updated successfully",
-  });
 }
