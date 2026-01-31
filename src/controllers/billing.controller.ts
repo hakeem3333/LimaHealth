@@ -7,7 +7,7 @@ import {
 
 export const createSubscriptionSession = async (
   req: Request,
-  res: Response
+  res: Response,
 ) => {
   try {
     const { schoolId, planTier, adminEmail } = req.body;
@@ -55,7 +55,7 @@ export const stripeWebhook = async (req: Request, res: Response) => {
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
-      process.env.STRIPE_WEBHOOK_SECRET!
+      process.env.STRIPE_WEBHOOK_SECRET!,
     );
   } catch (err) {
     console.error("⚠️ Webhook signature verification failed:", err);
@@ -63,36 +63,70 @@ export const stripeWebhook = async (req: Request, res: Response) => {
   }
 
   try {
+    const sub = event.data.object;
+    const schoolId = sub.metadata?.schoolId;
+
+    if (!schoolId) {
+      console.warn(
+        "⚠️ Webhook received without schoolId in metadata:",
+        event.type,
+      );
+    }
+
     switch (event.type) {
       case "customer.subscription.created":
       case "customer.subscription.updated": {
-        const sub = event.data.object;
-
+        // 1. Upsert the Subscription record
         await prisma.subscription.upsert({
           where: { stripeSubscriptionId: sub.id },
           update: {
-            schoolId: sub.metadata.schoolId,
-            planTier: sub.items.data[0].price.nickname || "",
             status: sub.status,
             currentPeriodEnd: new Date(sub.current_period_end * 1000),
           },
           create: {
-            schoolId: sub.metadata.schoolId,
+            schoolId: schoolId,
             stripeSubscriptionId: sub.id,
-            planTier: sub.items.data[0].price.nickname || "",
+            planTier: sub.items.data[0].price.nickname || "Standard",
             status: sub.status,
             currentPeriodEnd: new Date(sub.current_period_end * 1000),
           },
         });
+
+        // 2. 🔑 CRITICAL: Update the School Status to ACTIVE if payment is good
+        if (sub.status === "active" && schoolId) {
+          await prisma.school.update({
+            where: { id: schoolId },
+            data: { status: "ACTIVE" },
+          });
+        }
         break;
       }
 
       case "customer.subscription.deleted": {
-        const sub = event.data.object;
-        await prisma.subscription.updateMany({
+        // 1. Mark subscription as canceled
+        await prisma.subscription.update({
           where: { stripeSubscriptionId: sub.id },
           data: { status: "canceled" },
         });
+
+        // 2. 🔑 CRITICAL: Move School to EXPIRED
+        if (schoolId) {
+          await prisma.school.update({
+            where: { id: schoolId },
+            data: { status: "EXPIRED" },
+          });
+        }
+        break;
+      }
+
+      case "invoice.payment_failed": {
+        // Handle failed recurring payments
+        if (schoolId) {
+          await prisma.school.update({
+            where: { id: schoolId },
+            data: { status: "EXPIRED" }, // Or SUSPENDED
+          });
+        }
         break;
       }
     }
