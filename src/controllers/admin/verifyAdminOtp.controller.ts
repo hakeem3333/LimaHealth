@@ -26,7 +26,7 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
     }
     const { otp } = parsed.data;
 
-    // 2️⃣ Extract temp token from COOKIES (Not headers)
+    // 2️⃣ Extract temp token from COOKIES
     const tempToken = req.cookies?.admin_temp_token;
     if (!tempToken) {
       return res
@@ -34,7 +34,7 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
         .json({ message: "OTP session expired. Please login again." });
     }
 
-    // 3️⃣ Verify temp token safely using utility (Fixes ESM error)
+    // 3️⃣ Verify temp token
     const { decoded, valid, error } = verifyToken(tempToken);
     if (!valid) {
       return res.status(401).json({
@@ -45,19 +45,21 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
       });
     }
 
-    if ((decoded as any).purpose !== "ADMIN_OTP") {
-      return res.status(403).json({ message: "Invalid token scope" });
-    }
-
     const userId = (decoded as any).userId;
 
-    // 4️⃣ Fetch OTP record
-    const record = await prisma.adminOtp.findUnique({
-      where: { userId },
-    });
+    // 4️⃣ Fetch OTP record & User (Enriched to get actual role and school status)
+    const [record, user] = await Promise.all([
+      prisma.adminOtp.findUnique({ where: { userId } }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true, school: true },
+      }),
+    ]);
 
-    if (!record) {
-      return res.status(400).json({ message: "Invalid OTP session" });
+    if (!record || !user) {
+      return res
+        .status(400)
+        .json({ message: "Invalid OTP session or user no longer exists" });
     }
 
     // 5️⃣ Expiry and Attempt check
@@ -87,16 +89,20 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
     await prisma.adminOtp.delete({ where: { userId } });
     res.clearCookie("admin_temp_token");
 
-    // 8️⃣ Issue Real Access + Refresh Tokens
-    const accessToken = signAccessToken({ sub: userId, role: "SCHOOL_ADMIN" });
+    // 8️⃣ Issue Real Access + Refresh Tokens (Using DB role, not hardcoded string)
+    const accessToken = signAccessToken({
+      sub: userId,
+      role: user.role.name,
+      schoolId: user.schoolId,
+    });
     const refreshToken = signRefreshToken({ sub: userId });
 
-    // 9️⃣ Store Refresh Token in DB for Rotation/Revocation
+    // 9️⃣ Store Refresh Token
     await prisma.refreshToken.create({
       data: {
         userId: userId,
         tokenHash: hashToken(refreshToken),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
 
@@ -105,20 +111,24 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 15 * 60 * 1000, // 15 mins
+      maxAge: 15 * 60 * 1000,
     });
 
     res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      path: "/auth/refresh", // Important: Only sent to refresh route
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: "/auth/refresh",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return res.status(200).json({
       message: "Login successful",
-      user: { id: userId, role: "SCHOOL_ADMIN" }, // Send non-sensitive info
+      user: {
+        id: userId,
+        role: user.role.name,
+        schoolStatus: user.school?.status, // 👈 Vital for frontend redirection
+      },
     });
   } catch (err) {
     console.error("Admin OTP verification error:", err);
