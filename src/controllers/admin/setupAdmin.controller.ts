@@ -20,15 +20,34 @@ const createUserSchema = z.object({
 const createUser = async (
   req: AuthRequest,
   res: Response,
-  roleName: "COUNSELOR" | "TEACHER" | "STUDENT", // Fixed role names to match intent
+  roleName: "COUNSELOR" | "TEACHER" | "STUDENT",
 ) => {
   try {
-    // 1. Authorization & Context Check
+    // 1. Authorization & Subscription Check
     const schoolId = req.user?.schoolId;
+
     if (!schoolId) {
       return res
         .status(403)
         .json({ message: "Access denied. No school context found." });
+    }
+
+    // 🛡️ NEW: Check school status before allowing data modification
+    const school = await prisma.school.findUnique({
+      where: { id: schoolId },
+      select: { status: true },
+    });
+
+    if (!school || school.status !== "ACTIVE") {
+      const message =
+        school?.status === "PAYMENT_REQUIRED"
+          ? "Payment required to add new users."
+          : "School account is not active.";
+
+      return res.status(402).json({
+        message,
+        status: school?.status,
+      });
     }
 
     // 2. Validation
@@ -52,7 +71,7 @@ const createUser = async (
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // 4. Create User with Role Connection
+    // 4. Create User
     const user = await prisma.user.create({
       data: {
         firstName,
@@ -81,7 +100,6 @@ const createUser = async (
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 // =======================
 // Controllers
 // =======================
