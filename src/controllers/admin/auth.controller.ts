@@ -7,9 +7,9 @@ import { z } from "zod";
 import prisma from "../../services/prisma.service";
 import { sendVerificationEmail } from "../../services/email.service";
 
-// ====================
+// ==========================================
 // 🧩 Zod Schemas
-// ====================
+// ==========================================
 
 const schoolSignupSchema = z.object({
   name: z.string().min(2, "School name must be at least 2 characters"),
@@ -32,26 +32,24 @@ const verifyEmailSchema = z.object({
 const hashToken = (token: string) =>
   crypto.createHash("sha256").update(token).digest("hex");
 
-// ====================
+// ==========================================
 // 🏫 Signup Controller
-// ====================
+// ==========================================
 
 export const schoolSignup = async (req: Request, res: Response) => {
   try {
     const parseResult = schoolSignupSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res
-        .status(400)
-        .json({
-          message: "Invalid input",
-          errors: parseResult.error.flatten().fieldErrors,
-        });
+      return res.status(400).json({
+        message: "Invalid input",
+        errors: parseResult.error.flatten().fieldErrors,
+      });
     }
 
     const { name, contact_email, password, website, firstName, lastName } =
       parseResult.data;
 
-    // 1. Check for existing school/admin to prevent duplicates
+    // 1. Check for existing school/admin
     const existingSchool = await prisma.school.findFirst({
       where: { OR: [{ contact_email }, { name }] },
     });
@@ -69,10 +67,15 @@ export const schoolSignup = async (req: Request, res: Response) => {
     // 2. Database Transaction
     const result = await prisma.$transaction(async (tx) => {
       const school = await tx.school.create({
-        data: { name, contact_email, website },
+        data: {
+          name,
+          contact_email,
+          website,
+          status: "PENDING_EMAIL_VERIFICATION",
+        },
       });
 
-      const adminUser = await tx.user.create({
+      await tx.user.create({
         data: {
           firstName,
           lastName,
@@ -87,21 +90,21 @@ export const schoolSignup = async (req: Request, res: Response) => {
       await tx.emailVerificationToken.create({
         data: {
           schoolId: school.id,
-          tokenHash, // Store the hash, not the raw UUID
-          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+          tokenHash,
+          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000), // 3 Hours
         },
       });
 
-      return { school, adminUser };
+      return { school };
     });
 
-    // 3. Send Email (Outside transaction to prevent DB bloat/locks)
+    // 3. Send Email
     const emailResult = await sendVerificationEmail(contact_email, rawToken);
 
     return res.status(201).json({
       message: "Signup successful. Please verify your email.",
       schoolId: result.school.id,
-      previewLink: emailResult?.preview, // Only if using a dev mailer like ethereal
+      previewLink: emailResult?.preview,
     });
   } catch (error) {
     console.error("Error during signup:", error);
@@ -111,9 +114,9 @@ export const schoolSignup = async (req: Request, res: Response) => {
   }
 };
 
-// ====================
+// ==========================================
 // ✉️ Verify Email Controller
-// ====================
+// ==========================================
 
 export const verifyEmail = async (req: Request, res: Response) => {
   try {
@@ -133,23 +136,21 @@ export const verifyEmail = async (req: Request, res: Response) => {
     if (!record) {
       return res
         .status(404)
-        .json({ message: "Verification token is invalid or already used." });
+        .json({ message: "Verification token invalid or used." });
     }
 
     if (record.expiresAt < new Date()) {
-      return res
-        .status(410)
-        .json({
-          message: "Token expired.",
-          email: record.school.contact_email,
-        });
+      return res.status(410).json({
+        message: "Token expired.",
+        email: record.school.contact_email,
+      });
     }
 
-    // Atomic update and cleanup
+    // Atomic update: Verify school and remove token
     await prisma.$transaction([
       prisma.school.update({
         where: { id: record.schoolId },
-        data: { status: "PENDING_ACTIVATION" },
+        data: { status: "PENDING_ACTIVATION" }, // Now ready for SuperAdmin
       }),
       prisma.emailVerificationToken.delete({
         where: { id: record.id },
@@ -158,7 +159,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
 
     return res.json({
       verified: true,
-      message: "Email verified! Your account is pending approval.",
+      message: "Email verified! Your account is pending Super Admin approval.",
     });
   } catch (error) {
     console.error("Error verifying email:", error);
@@ -166,9 +167,9 @@ export const verifyEmail = async (req: Request, res: Response) => {
   }
 };
 
-// ====================
-// 🔄 Resend Controller
-// ====================
+// ==========================================
+// 🔄 Resend Verification
+// ==========================================
 
 export const resendVerificationEmail = async (req: Request, res: Response) => {
   try {
@@ -178,7 +179,13 @@ export const resendVerificationEmail = async (req: Request, res: Response) => {
     const school = await prisma.school.findUnique({
       where: { contact_email: email },
     });
+
     if (!school) return res.status(404).json({ message: "School not found" });
+
+    // Only allow resend if they haven't been verified yet
+    if (school.status !== "PENDING_EMAIL_VERIFICATION") {
+      return res.status(400).json({ message: "Email is already verified." });
+    }
 
     const rawToken = uuidv4();
     const tokenHash = hashToken(rawToken);
@@ -189,7 +196,7 @@ export const resendVerificationEmail = async (req: Request, res: Response) => {
       }),
       prisma.emailVerificationToken.create({
         data: {
-          token: tokenHash,
+          tokenHash, // Matches schema field name
           schoolId: school.id,
           expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
         },
@@ -203,7 +210,11 @@ export const resendVerificationEmail = async (req: Request, res: Response) => {
   }
 };
 
-export const getMe = async (req: Request, res: Response) => {
+// ==========================================
+// 👤 Get Current User (Me)
+// ==========================================
+
+export const getMe = async (req: any, res: Response) => {
   try {
     // req.user is populated by your authMiddleware
     const user = await prisma.user.findUnique({
@@ -214,7 +225,20 @@ export const getMe = async (req: Request, res: Response) => {
         firstName: true,
         lastName: true,
         schoolId: true,
-        role: { select: { name: true } },
+        school: {
+          select: {
+            name: true,
+            status: true, // Vital for frontend redirection logic
+          },
+        },
+        role: {
+          select: {
+            name: true,
+            permissions: {
+              select: { permission: { select: { name: true } } },
+            },
+          },
+        },
       },
     });
 
@@ -222,6 +246,7 @@ export const getMe = async (req: Request, res: Response) => {
 
     return res.status(200).json(user);
   } catch (error) {
+    console.error("GetMe Error:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
