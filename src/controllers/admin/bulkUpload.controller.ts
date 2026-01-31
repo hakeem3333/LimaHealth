@@ -61,7 +61,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: "Unsupported file format." });
     }
 
-    // 2. Fetch Role IDs from DB (Matches your RBAC Schema)
+    // 2. Fetch Role IDs
     const dbRoles = await prisma.role.findMany({
       where: { name: { in: ["STUDENT", "TEACHER", "COUNSELOR"] } },
     });
@@ -104,8 +104,8 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         firstName: parsed.data.firstName,
         lastName: parsed.data.lastName,
         email: parsed.data.email,
-        roleId: roleId, // Map to actual field in schema
-        originalRoleName: parsed.data.role, // Kept for email service
+        roleId: roleId,
+        originalRoleName: parsed.data.role,
         passwordHash,
         schoolId,
         tempPassword,
@@ -124,9 +124,17 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       (u) => !existingEmails.has(u.email),
     );
 
+    // Track existing users as failures
     successPayloads.forEach((u) => {
-      if (existingEmails.has(u.email))
-        failedRecords.push({ ...u, error: "User already exists" });
+      if (existingEmails.has(u.email)) {
+        failedRecords.push({
+          firstName: u.firstName,
+          lastName: u.lastName,
+          email: u.email,
+          role: u.originalRoleName,
+          error: "User already exists",
+        });
+      }
     });
 
     // 5. Batch Insert
@@ -149,7 +157,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // 7. Log
+    // 7. Log with errorData
     const log = await prisma.bulkUploadLog.create({
       data: {
         adminId,
@@ -157,7 +165,8 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         totalRecords: records.length,
         createdCount: finalUsersToCreate.length,
         failedCount: failedRecords.length,
-        // Optional: you might need to add errorData to your BulkUploadLog model if not there
+        // Store as JSON for the CSV downloader
+        errorData: failedRecords.length > 0 ? failedRecords : undefined,
       },
     });
 
@@ -183,13 +192,13 @@ export const getFailedCSV = async (req: AuthRequest, res: Response) => {
   const { logId } = req.params;
   const log = await prisma.bulkUploadLog.findUnique({ where: { id: logId } });
 
-  if (!log) return res.status(404).json({ message: "No report found" });
+  if (!log || !log.errorData) {
+    return res.status(404).json({ message: "No failure report found" });
+  }
 
-  // Note: Ensure your schema supports storing the error data strings
-  // If not, this part will need the errorData field added to BulkUploadLog
-  const failedRecords = log.errorData
-    ? JSON.parse(log.errorData as string)
-    : [];
+  // Prisma returns Json types directly, no need to JSON.parse if it's already an object
+  const failedRecords = Array.isArray(log.errorData) ? log.errorData : [];
+
   const parser = new Parser();
   const csv = parser.parse(failedRecords);
 
