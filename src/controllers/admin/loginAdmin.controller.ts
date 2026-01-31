@@ -39,12 +39,11 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
 
     const { email, password } = parsed.data;
 
-    // 1. Fetch user, their role, and their school status
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
         role: true,
-        school: true, // 👈 Include school to check status
+        school: true,
       },
     });
 
@@ -56,23 +55,30 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       });
     }
 
-    // 2. Check if the school is fully activated
+    // 🛡️ 2. Updated School Status Logic
     if (user.school) {
-      if (user.school.status === "PENDING_EMAIL_VERIFICATION") {
+      const status = user.school.status;
+
+      if (status === "PENDING_EMAIL_VERIFICATION") {
         return res.status(403).json({
           message: "Please verify your email before logging in.",
         });
       }
 
-      if (user.school.status === "PENDING_ACTIVATION") {
+      if (status === "PENDING_ACTIVATION") {
         return res.status(403).json({
-          message: "Your school account is pending LimaHealth Admin approval.",
+          message:
+            "Your account is pending Super Admin approval. You will receive an email once approved.",
         });
       }
 
-      if (user.school.status !== "ACTIVE") {
+      // ✅ ALLOW: ACTIVE, PAYMENT_REQUIRED, and EXPIRED
+      // We allow these so they can enter the app and see the "Payment Required" or "Expired" screens.
+      const allowedToLogin = ["ACTIVE", "PAYMENT_REQUIRED", "EXPIRED"];
+
+      if (!allowedToLogin.includes(status)) {
         return res.status(403).json({
-          message: "Your school account is currently inactive or suspended.",
+          message: `Your school account is ${status.toLowerCase().replace("_", " ")}. Please contact support.`,
         });
       }
     }
@@ -116,8 +122,6 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       sameSite: "strict",
       maxAge: 5 * 60 * 1000,
     });
-
-    console.log(`Admin login initiated for: ${user.email}`);
 
     return res.status(200).json({
       message: "A verification code has been sent to your email.",
