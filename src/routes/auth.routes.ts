@@ -1,6 +1,11 @@
 import { Router } from "express";
 
-import { schoolSignup, verifyEmail } from "../controllers/admin/auth.controller";
+import {
+  schoolSignup,
+  verifyEmail,
+  adminLogout,
+} from "../controllers/admin/auth.controller";
+import { handleRefreshToken } from "../controllers/refreshToken.controller";
 import { adminLoginStep1 } from "../controllers/admin/loginAdmin.controller";
 import { adminLoginStep2 } from "../controllers/admin/verifyAdminOtp.controller";
 
@@ -41,6 +46,8 @@ router.post("/admin/signup", schoolSignup);
 router.get("/admin/verify-email", verifyEmail);
 router.post("/admin/login", adminLoginStep1);
 router.post("/admin/verify-otp", adminLoginStep2);
+router.post("/logout", adminLogout);
+router.post("/refresh-token", handleRefreshToken);
 
 router.get("/me",
    authenticate,

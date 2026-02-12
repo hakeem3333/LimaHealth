@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import prisma from "../../services/prisma.service";
 import { sendVerificationEmail } from "../../services/email.service";
+import { hashToken } from "../../utils/jwt.util";
 
 // ==========================================
 // 🧩 Zod Schemas
@@ -27,10 +28,6 @@ const schoolSignupSchema = z.object({
 const verifyEmailSchema = z.object({
   token: z.string().uuid("Invalid verification token format"),
 });
-
-// Helper to hash the UUID token before storing in DB
-const hashToken = (token: string) =>
-  crypto.createHash("sha256").update(token).digest("hex");
 
 // ==========================================
 // 🏫 Signup Controller
@@ -248,5 +245,48 @@ export const getMe = async (req: any, res: Response) => {
   } catch (error) {
     console.error("GetMe Error:", error);
     return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const adminLogout = async (req: Request, res: Response) => {
+  try {
+    // 1. Extract refresh token to invalidate it in the DB
+    const refreshToken = req.cookies?.refresh_token;
+
+    if (refreshToken) {
+      await prisma.refreshToken.deleteMany({
+        where: {
+          tokenHash: hashToken(refreshToken),
+        },
+      });
+    }
+
+    // 2. Clear all authentication and status cookies
+    const isProd = process.env.NODE_ENV === "production";
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "strict" as const,
+      path: "/",
+    };
+
+    res.clearCookie("access_token", cookieOptions);
+
+    // Refresh token usually has a specific path
+    res.clearCookie("refresh_token", {
+      ...cookieOptions,
+      path: "/auth/refresh",
+    });
+
+    // Clear the school status cookie (Note: httpOnly was false when set, but clearCookie works)
+    res.clearCookie("school_status", { ...cookieOptions, httpOnly: false });
+
+    // Optional: Clear the temp token just in case
+    res.clearCookie("admin_temp_token", cookieOptions);
+
+    return res.status(200).json({ message: "Logged out successfully" });
+  } catch (err) {
+    console.error("Logout error:", err);
+    return res.status(500).json({ message: "Server error during logout" });
   }
 };

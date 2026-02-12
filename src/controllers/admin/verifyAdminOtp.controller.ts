@@ -89,14 +89,17 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
     res.clearCookie("admin_temp_token");
 
     // 8️⃣ Issue Real Access + Refresh Tokens
+    // Pass the status from the database user object into the JWT payload
     const accessToken = signAccessToken({
       sub: userId,
       role: user.role.name,
-      schoolId: user.schoolId,
+      schoolId: user.schoolId ?? undefined,
+      schoolStatus: user.school?.status || "INACTIVE", // 👈 Crucial update
     });
+
     const refreshToken = signRefreshToken({ sub: userId });
 
-    // 9️⃣ Store Refresh Token
+    // 9️⃣ Store Refresh Token (unchanged)
     await prisma.refreshToken.create({
       data: {
         userId: userId,
@@ -112,9 +115,20 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
       httpOnly: true,
       secure: isProd,
       sameSite: "strict",
-      maxAge: 15 * 60 * 1000, // 15 mins
+      maxAge: 15 * 60 * 1000,
     });
 
+    // Setting the school_status cookie as a "fast-track" for Middleware
+    if (user.school?.status) {
+      res.cookie("school_status", user.school.status, {
+        httpOnly: false, // Middleware can read this without decoding JWT
+        secure: isProd,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+    
     res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
       secure: isProd,

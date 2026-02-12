@@ -19,16 +19,19 @@ const router = Router();
 
 // Initiates Fitbit OAuth flow
 // GET /fitbit/auth
-router.get("/auth", authenticate, authorizeFitbit);
+// router.get("/auth", authenticate, authorizeFitbit);
+router.get("/auth", authorizeFitbit);
 
 // Fitbit redirects back to this URL
 // GET /fitbit/callback
 // NOTE: Does not require JWT because Fitbit sends the user back with ?code=...
 //       BUT you *can* protect it with JWT if this URL is hit from your app only.
-router.get("/callback", authenticate, handleFitbitCallback);
+// router.get("/callback", authenticate, handleFitbitCallback);
+router.get("/callback", handleFitbitCallback);
 
 // Sync data (requires JWT + Fitbit must be linked)
 // POST /fitbit/sync
-router.post("/sync", authenticate, syncFitbitData);
+// router.post("/sync", authenticate, syncFitbitData);
+router.post("/sync", syncFitbitData);
 
 export default router;

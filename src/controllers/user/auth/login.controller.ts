@@ -80,60 +80,117 @@ export const loginSchema = z.object({
   password: z.string().min(6),
 });
 
+// export const login = async (req: Request, res: Response) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     // Find user
+//     const user = await prisma.user.findUnique({
+//       where: { email },
+//       include: { role: true }, // so we return role.name
+//     });
+
+//     if (!user) {
+//       return res.status(400).json({ message: "Invalid credentials" });
+//     }
+
+//     // Verify password
+//     const isMatch = await bcrypt.compare(password, user.passwordHash);
+//     if (!isMatch) {
+//       return res.status(400).json({ message: "Invalid credentials" });
+//     }
+//   //  Log all users (for debugging)
+//     const users = await prisma.user.findMany({
+//       select: { email: true, role: { select: { name: true } } },
+//     });
+//     console.log(users);
+
+//     // Only allow counsellor, student, parent to login
+//     const allowedRoles = ["COUNSELOR", "STUDENT"];
+//     if (!allowedRoles.includes(user.role?.name || "")) {
+//       return res.status(403).json({
+//         message: "Account type not allowed to login here",
+//       });
+//     }
+
+//     // Generate Token
+//     const token = jwt.sign(
+//       {
+//         id: user.id,
+//         email: user.email,
+//         role: user.role?.name,
+//       },
+//       process.env.JWT_SECRET!,
+//       { expiresIn: "7d" }
+//     );
+
+//     return res.json({
+//       message: "Login successful",
+//       token,
+//       user: {
+//         id: user.id,
+//         email: user.email,
+//         role: user.role?.name,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Login error:", error);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    // 1. Validate Input
+    const validatedData = loginSchema.parse(req.body);
+    const { email, password } = validatedData;
 
-    // Find user
+    // 2. Find User
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { role: true }, // so we return role.name
+      include: { role: true },
     });
 
     if (!user) {
-      return res.status(400).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Verify password
+    // 3. Verify Password
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-  //  Log all users (for debugging)
-    const users = await prisma.user.findMany({
-      select: { email: true, role: { select: { name: true } } },
-    });
-    console.log(users);
-
-    // Only allow counsellor, student, parent to login
-    const allowedRoles = ["COUNSELOR", "USER", "PARENT"];
-    if (!allowedRoles.includes(user.role?.name || "")) {
-      return res.status(403).json({
-        message: "Account type not allowed to login here",
-      });
+      return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Generate Token
+    // 4. Role Authorization
+    const allowedRoles = ["COUNSELOR", "STUDENT", "PARENT"];
+    const userRole = user.role?.name || "";
+
+    if (!allowedRoles.includes(userRole)) {
+      return res
+        .status(403)
+        .json({ message: "Access denied for this account type" });
+    }
+
+    // 5. Generate Token
     const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role?.name,
-      },
+      { id: user.id, email: user.email, role: userRole },
       process.env.JWT_SECRET!,
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
 
-    return res.json({
+    return res.status(200).json({
       message: "Login successful",
       token,
       user: {
         id: user.id,
         email: user.email,
-        role: user.role?.name,
+        role: userRole,
       },
     });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ errors: error.errors });
+    }
     console.error("Login error:", error);
     res.status(500).json({ message: "Server error" });
   }

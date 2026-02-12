@@ -1,5 +1,5 @@
-import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
+
 import {
   getAuthorizationUrl,
   getAccessToken,
@@ -9,15 +9,28 @@ import {
 } from "../services/fitbit.service";
 import { z } from "zod";
 
-// Zod schemas
 const fitbitCallbackSchema = z.object({
   code: z.string().optional(),
   error: z.string().optional(),
+  state: z.string().optional(), // The userId returned by Fitbit
 });
 
-export const authorizeFitbit = async (req: Request, res: Response) => {
+/**
+ * Starts the flow.
+ * Mobile should call: GET /auth/fitbit?userId=XYZ
+ */
+export const authorizeFitbit = async (req, res) => {
   try {
-    const authUrl = getAuthorizationUrl();
+    const { userId } = req.query; // Mobile app passes this in the URL
+
+    if (!userId) {
+      return res
+        .status(400)
+        .send({ error: "userId is required to link Fitbit." });
+    }
+
+    // We pass userId as 'state' so it persists through the redirect
+    const authUrl = getAuthorizationUrl(userId);
     res.redirect(authUrl);
   } catch (error) {
     console.error("Error generating authorization URL:", error);
@@ -25,23 +38,32 @@ export const authorizeFitbit = async (req: Request, res: Response) => {
   }
 };
 
-export const handleFitbitCallback = async (req: Request, res: Response) => {
+/**
+ * Fitbit redirects here after user login
+ */
+export const handleFitbitCallback = async (req, res) => {
   const parsed = fitbitCallbackSchema.safeParse(req.query);
+
+  // Mobile Deep Link Base
+  // For the Mobile App:
+  // const APP_SCHEME = "limahealth://home";
+
+  // For Web Testing:
+  const APP_SCHEME = "localhost:8081://home";
+
   if (!parsed.success) {
-    return res.redirect("/settings?error=invalid_callback_params");
+    return res.redirect(`${APP_SCHEME}?error=invalid_params`);
   }
 
-  const { code, error } = parsed.data;
+  const { code, error, state: userId } = parsed.data;
 
   if (error) {
     console.error("Fitbit authorization error:", error);
-    return res.redirect("/settings?error=fitbit_auth_denied");
+    return res.redirect(`${APP_SCHEME}?error=auth_denied`);
   }
 
-  // ⬇⬇⬇ UPDATED FOR JWT (NOT sessions)
-  const userId = (req as any).user?.id;
   if (!code || !userId) {
-    return res.redirect("/settings?error=missing_auth_code_or_user");
+    return res.redirect(`${APP_SCHEME}?error=missing_data`);
   }
 
   try {
@@ -50,20 +72,21 @@ export const handleFitbitCallback = async (req: Request, res: Response) => {
       access_token,
       refresh_token,
       expires_in,
-      user_id,
+      user_id: fitbitUserId,
       scope,
       token_type,
     } = tokenData;
 
     const expiresAt = new Date(Date.now() + expires_in * 1000);
 
+    // Save tokens using the userId we recovered from 'state'
     await prisma.fitbitCredential.upsert({
       where: { userId },
       update: {
         accessToken: access_token,
         refreshToken: refresh_token,
         expiresAt,
-        fitbitUserId: user_id,
+        fitbitUserId,
         scope,
         tokenType: token_type,
       },
@@ -72,26 +95,23 @@ export const handleFitbitCallback = async (req: Request, res: Response) => {
         accessToken: access_token,
         refreshToken: refresh_token,
         expiresAt,
-        fitbitUserId: user_id,
+        fitbitUserId,
         scope,
         tokenType: token_type,
       },
     });
 
-    return res.redirect("/settings?success=fitbit_linked");
+    // Successful redirect back to mobile app
+    return res.redirect(`${APP_SCHEME}?success=fitbit_linked`);
   } catch (err) {
     console.error("Error during Fitbit token exchange:", err);
-    return res.redirect("/settings?error=token_exchange_failed");
+    return res.redirect(`${APP_SCHEME}?error=token_exchange_failed`);
   }
 };
 
-export const syncFitbitData = async (req: Request, res: Response) => {
-  // ⬇⬇⬇ UPDATED FOR JWT (NOT sessions)
-  const userId = (req as any).user?.id;
-  if (!userId)
-    return res
-      .status(401)
-      .send({ error: "Unauthorized — no user found in token." });
+export const syncFitbitData = async (req, res) => {
+  const userId = req.user?.id; // Assuming JWT middleware is used
+  if (!userId) return res.status(401).send({ error: "Unauthorized" });
 
   try {
     let credentials = await prisma.fitbitCredential.findUnique({
@@ -99,15 +119,13 @@ export const syncFitbitData = async (req: Request, res: Response) => {
     });
 
     if (!credentials) {
-      return res
-        .status(404)
-        .send({ error: "Fitbit not linked for this user." });
+      return res.status(404).send({ error: "Fitbit not linked." });
     }
 
     let accessToken = credentials.accessToken;
     const now = Date.now();
 
-    // Refresh token if it expires in the next 5 min
+    // Auto-refresh logic
     if (
       credentials.expiresAt &&
       credentials.expiresAt.getTime() < now + 300_000
@@ -123,7 +141,6 @@ export const syncFitbitData = async (req: Request, res: Response) => {
           expiresAt,
         },
       });
-
       accessToken = credentials.accessToken;
     }
 
@@ -131,14 +148,13 @@ export const syncFitbitData = async (req: Request, res: Response) => {
     const newLog = await saveBiometricData(userId, biometricData);
 
     return res.status(200).send({
-      message: "Biometric data synced and saved successfully.",
+      message: "Data synced successfully.",
       data: newLog,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error during Fitbit sync:", error);
-    return res.status(500).send({
-      error: "Failed to sync Fitbit data.",
-      details: error.message,
-    });
+    return res
+      .status(500)
+      .send({ error: "Sync failed", details: error.message });
   }
 };

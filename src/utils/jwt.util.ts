@@ -5,25 +5,29 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-super-secure-secret";
 
 /**
  * 🛠️ JWT Utility Functions
- * Handles signing and verification for different token types.
  */
 
-// 1. Access Token: Very short-lived (15 minutes)
-export const signAccessToken = (payload: object) => {
+// 1. Access Token: Added schoolStatus to the payload for Middleware checks
+export const signAccessToken = (payload: {
+  sub: string;
+  role: string;
+  schoolId?: string;
+  schoolStatus: string;
+}) => {
   return jwt.sign({ ...payload, type: "ACCESS" }, JWT_SECRET, {
     expiresIn: "15m",
   });
 };
 
-// 2. Refresh Token: Long-lived (7 days)
-export const signRefreshToken = (payload: object) => {
+// 2. Refresh Token: Standard 7 days
+export const signRefreshToken = (payload: { sub: string }) => {
   return jwt.sign({ ...payload, type: "REFRESH" }, JWT_SECRET, {
     expiresIn: "7d",
   });
 };
 
-// 3. Temp Token: Used for OTP/Verification flows (5-10 minutes)
-export const signTempToken = (payload: object) => {
+// 3. Temp Token: Unchanged
+export const signTempToken = (payload: { userId: string }) => {
   return jwt.sign({ ...payload, purpose: "ADMIN_OTP" }, JWT_SECRET, {
     expiresIn: "10m",
   });
@@ -31,8 +35,6 @@ export const signTempToken = (payload: object) => {
 
 /**
  * 🛡️ Verify Token
- * Safely handles verification and returns a standardized object.
- * Fixes ESM issues by avoiding direct "instanceof" checks on named exports.
  */
 export const verifyToken = (token: string) => {
   try {
@@ -42,15 +44,13 @@ export const verifyToken = (token: string) => {
     return {
       valid: false,
       decoded: null,
-      error: err.name, // Returns "TokenExpiredError" or "JsonWebTokenError"
+      error: err.name,
     };
   }
 };
 
 /**
- * 🔒 Token Hashing (For Database Storage)
- * Used to hash UUID verification tokens so plaintext tokens
- * are never stored in the database.
+ * 🔒 Token Hashing
  */
 export const hashToken = (token: string) => {
   return crypto.createHash("sha256").update(token).digest("hex");
