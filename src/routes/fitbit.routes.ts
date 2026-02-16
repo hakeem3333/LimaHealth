@@ -5,6 +5,7 @@ import {
   authorizeFitbit,
   handleFitbitCallback,
   syncFitbitData,
+  getFitbitStatus,
 } from "../controllers/fitbit.controller";
 
 // 🔐 JWT auth middleware
@@ -33,5 +34,7 @@ router.get("/callback", handleFitbitCallback);
 // POST /fitbit/sync
 // router.post("/sync", authenticate, syncFitbitData);
 router.post("/sync", syncFitbitData);
+
+router.get("/status/:userId", getFitbitStatus);
 
 export default router;

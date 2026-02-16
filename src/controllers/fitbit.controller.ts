@@ -49,7 +49,7 @@ export const handleFitbitCallback = async (req, res) => {
   // const APP_SCHEME = "limahealth://home";
 
   // For Web Testing:
-  const APP_SCHEME = "localhost:8081://home";
+  const APP_SCHEME = "http://localhost:8081/home";
 
   if (!parsed.success) {
     return res.redirect(`${APP_SCHEME}?error=invalid_params`);
@@ -78,6 +78,9 @@ export const handleFitbitCallback = async (req, res) => {
     } = tokenData;
 
     const expiresAt = new Date(Date.now() + expires_in * 1000);
+
+    console.log("Saving for User:", userId);
+    console.log("Token Data Received:", tokenData ? "YES" : "NO");
 
     // Save tokens using the userId we recovered from 'state'
     await prisma.fitbitCredential.upsert({
@@ -156,5 +159,33 @@ export const syncFitbitData = async (req, res) => {
     return res
       .status(500)
       .send({ error: "Sync failed", details: error.message });
+  }
+};
+
+/**
+ * Checks if a specific user has already linked their Fitbit account.
+ * Endpoint: GET /api/v1/fitbit/status/:userId
+ */
+export const getFitbitStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).send({ error: "userId is required." });
+    }
+
+    // Check if a credential record exists for this user
+    const credentials = await prisma.fitbitCredential.findUnique({
+      where: { userId },
+    });
+
+    // Return a boolean to the frontend
+    return res.status(200).json({
+      isLinked: !!credentials,
+      userId: userId,
+    });
+  } catch (error) {
+    console.error("Error checking Fitbit status:", error);
+    return res.status(500).send({ error: "Internal server error." });
   }
 };
