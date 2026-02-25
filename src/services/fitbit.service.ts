@@ -116,7 +116,37 @@ export const getAllDailyBiometrics = async (accessToken) => {
 };
 
 /**
+//   const { summary } = data.activity;
+//   const steps = summary?.steps || 0;
+//   const caloriesOut = summary?.caloriesOut || 0;
+
+//   const heartRate =
+//     data.heart?.["activities-heart"]?.[0]?.value?.restingHeartRate || null;
+
+//   const sleepLog = data.sleep?.sleep?.[0];
+//   const sleepDuration =
+//     sleepLog?.timeInBed || sleepLog?.totalMinutesAsleep || 0;
+
+//   try {
+//     const biometricLog = await prisma.biometricLog.create({
+//       data: {
+//         userId,
+//         heartRate,
+//         steps,
+//         caloriesBurned: caloriesOut,
+//         sleepDuration,
+//       },
+//     });
+//     return biometricLog;
+//   } catch (error) {
+//     console.error("Error saving biometric data:", error);
+//     throw new Error("Failed to save biometric data.");
+//   }
+// };
+
+/**
  * Saves processed biometric data to Prisma.
+ * Updated to match the mandatory fields in the BiometricLog schema.
  */
 export const saveBiometricData = async (userId, data) => {
   const { summary } = data.activity;
@@ -124,25 +154,38 @@ export const saveBiometricData = async (userId, data) => {
   const caloriesOut = summary?.caloriesOut || 0;
 
   const heartRate =
-    data.heart?.["activities-heart"]?.[0]?.value?.restingHeartRate || null;
+    data.heart?.["activities-heart"]?.[0]?.value?.restingHeartRate || 0;
 
   const sleepLog = data.sleep?.sleep?.[0];
   const sleepDuration =
     sleepLog?.timeInBed || sleepLog?.totalMinutesAsleep || 0;
 
+  // --- DERIVED FIELDS ---
+  // Since the schema requires these Float fields, we provide defaults or logic
+  const skinTemp = 0.0; // Fitbit requires higher-tier API permissions for skin temp
+  const gsr = 0.0;      // Galvanic Skin Response
+  const movement = steps > 0 ? (steps / 100) : 0.0; // Crude movement proxy
+
+  // Basic Stress Logic: If HR is above 80 (resting), increase stress score
+  const stressLevelScore = heartRate > 80 ? 7.5 : 3.2;
+
   try {
     const biometricLog = await prisma.biometricLog.create({
       data: {
         userId,
-        heartRate,
-        steps,
-        caloriesBurned: caloriesOut,
-        sleepDuration,
+        heartRate: parseFloat(heartRate),
+        steps: parseFloat(steps),
+        caloriesBurned: parseFloat(caloriesOut),
+        sleepDuration: parseFloat(sleepDuration),
+        skinTemp: parseFloat(skinTemp),
+        gsr: parseFloat(gsr),
+        movement: parseFloat(movement),
+        stressLevelScore: parseFloat(stressLevelScore),
       },
     });
     return biometricLog;
   } catch (error) {
     console.error("Error saving biometric data:", error);
-    throw new Error("Failed to save biometric data.");
+    throw new Error("Failed to save biometric data to database.");
   }
 };

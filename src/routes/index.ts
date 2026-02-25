@@ -21,6 +21,7 @@ import schoolAdminProfileRoutes from "./school-admin/admin.routes.js";
 import schoolReportsRoutes from "./school-admin/schoolReports.routes.js";
 import schoolAdminSettingsRoutes from "./school-admin/schoolSettings.routes.js";
 import schoolAdminWearablesRoutes from "./school-admin/wearables.controller.js";
+import downloadCSV from "./school-admin/downloadCSV.js";
 import superAdminRoutes from "./super-admin/superAdmin.routes.js";
 import aiRoutes from "./ai.routes.js";
 import appointmentRoutes from "./appointment.routes.js";
@@ -39,6 +40,7 @@ router.use("/school", schoolAdminProfileRoutes);
 router.use("/school", schoolReportsRoutes);
 router.use("/school", schoolAdminSettingsRoutes);
 router.use("/school", schoolAdminWearablesRoutes);
+router.use("/admin/setup/bulk-upload", downloadCSV);
 router.use("/super-admin", superAdminRoutes);
 
 router.use("/subscriptions", subscriptionRoutes);

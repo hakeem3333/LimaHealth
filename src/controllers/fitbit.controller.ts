@@ -41,14 +41,12 @@ export const authorizeFitbit = async (req, res) => {
 /**
  * Fitbit redirects here after user login
  */
+/**
+ * Fitbit redirects here after user login
+ */
 export const handleFitbitCallback = async (req, res) => {
   const parsed = fitbitCallbackSchema.safeParse(req.query);
 
-  // Mobile Deep Link Base
-  // For the Mobile App:
-  // const APP_SCHEME = "limahealth://home";
-
-  // For Web Testing:
   const APP_SCHEME = "http://localhost:8081/home";
 
   if (!parsed.success) {
@@ -79,10 +77,20 @@ export const handleFitbitCallback = async (req, res) => {
 
     const expiresAt = new Date(Date.now() + expires_in * 1000);
 
-    console.log("Saving for User:", userId);
-    console.log("Token Data Received:", tokenData ? "YES" : "NO");
+    // --- NEW: OWNERSHIP CHECK ---
+    // Check if this specific Fitbit account is already linked to ANOTHER user
+    const existingLink = await prisma.fitbitCredential.findUnique({
+      where: { fitbitUserId },
+    });
 
-    // Save tokens using the userId we recovered from 'state'
+    if (existingLink && existingLink.userId !== userId) {
+      console.warn(`Conflict: Fitbit account ${fitbitUserId} already claimed by ${existingLink.userId}`);
+      return res.redirect(`${APP_SCHEME}?error=fitbit_already_linked_to_other`);
+    }
+    // ----------------------------
+
+    console.log("Saving for User:", userId);
+
     await prisma.fitbitCredential.upsert({
       where: { userId },
       update: {
@@ -104,14 +112,16 @@ export const handleFitbitCallback = async (req, res) => {
       },
     });
 
-    // Successful redirect back to mobile app
     return res.redirect(`${APP_SCHEME}?success=fitbit_linked`);
   } catch (err) {
     console.error("Error during Fitbit token exchange:", err);
+    // Handle the specific Prisma unique constraint error just in case
+    if (err.code === 'P2002') {
+        return res.redirect(`${APP_SCHEME}?error=fitbit_id_conflict`);
+    }
     return res.redirect(`${APP_SCHEME}?error=token_exchange_failed`);
   }
 };
-
 export const syncFitbitData = async (req, res) => {
   const userId = req.user?.id; // Assuming JWT middleware is used
   if (!userId) return res.status(401).send({ error: "Unauthorized" });

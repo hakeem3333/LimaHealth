@@ -175,10 +175,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       logId: log.id,
       createdCount: finalUsersToCreate.length,
       failedCount: failedRecords.length,
-      failedDownload:
-        failedRecords.length > 0
-          ? `/api/v1/admin/setup/bulk-upload/failed-csv/${log.id}`
-          : null,
+      failedDownload: failedRecords.length > 0 ? `/failed-csv/${log.id}` : null,
     });
   } catch (err) {
     console.error(err);
