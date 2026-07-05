@@ -173,13 +173,13 @@ export const saveBiometricData = async (userId, data) => {
     const biometricLog = await prisma.biometricLog.create({
       data: {
         userId,
-        heartRate: parseFloat(heartRate),
-        steps: parseFloat(steps),
-        caloriesBurned: parseFloat(caloriesOut),
-        sleepDuration: parseFloat(sleepDuration),
-        skinTemp: parseFloat(skinTemp),
-        gsr: parseFloat(gsr),
-        movement: parseFloat(movement),
+        heartRate:        parseFloat(heartRate),
+        steps:            parseFloat(steps),
+        calories:         parseFloat(caloriesOut),
+        sleepHours:       parseFloat(sleepDuration) / 60, // convert minutes to hours
+        skinTemp:         parseFloat(skinTemp),
+        gsr:              parseFloat(gsr),
+        movement:         parseFloat(movement),
         stressLevelScore: parseFloat(stressLevelScore),
       },
     });

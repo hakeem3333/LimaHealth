@@ -8,8 +8,8 @@ const ROLES = {
 } as const;
 
 const DEFAULT_PLATFORM_SETTINGS = {
-  allowSchoolSignup: true,
-  defaultSchoolStatus: "PENDING_EMAIL_VERIFICATION",
+  allowOrgSignup: true,
+  defaultOrgStatus: "PENDING_EMAIL_VERIFICATION",
   requireEmailVerification: true,
   adminOtpExpiryMinutes: 15,
   enforceAuditLogging: true,
@@ -20,8 +20,8 @@ const DEFAULT_PLATFORM_SETTINGS = {
 };
 
 const updateSettingsSchema = z.object({
-  allowSchoolSignup: z.boolean(),
-  defaultSchoolStatus: z.enum([
+  allowOrgSignup: z.boolean(),
+  defaultOrgStatus: z.enum([
     "PENDING_EMAIL_VERIFICATION",
     "PENDING_ACTIVATION",
     "ACTIVE",

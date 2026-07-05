@@ -1,0 +1,27 @@
+enum OrgType {
+  SCHOOL
+  COMPANY
+  HOSPITAL
+  NGO
+}
+
+enum OrgStatus {
+  PENDING_EMAIL_VERIFICATION
+  PENDING_ACTIVATION
+  ACTIVE
+  SUSPENDED
+}
+
+model Organisation {
+  id              String        @id @default(uuid())
+  name            String
+  contact_email   String
+  orgType         OrgType       @default(SCHOOL)
+  status          OrgStatus     @default(PENDING_EMAIL_VERIFICATION)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  users           User[]
+  subscriptions   Subscription[]
+  activationData  Json?
+  emailVerificationTokens EmailVerificationToken[]
+}

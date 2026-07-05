@@ -1,40 +1,26 @@
-// src/routes/fitbit.routes.ts
-
 import { Router } from "express";
 import {
   authorizeFitbit,
   handleFitbitCallback,
   syncFitbitData,
   getFitbitStatus,
-} from "../controllers/fitbit.controller";
-
-// 🔐 JWT auth middleware
-import { authenticate } from "../middleware/auth.middleware";
-// (adjust path if your file name differs)
+  getFitbitData,
+  disconnectFitbit,
+} from "../controllers/fitbit.controller.js";
+import { authenticate } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-/**
- * Fitbit OAuth Routes (Protected with JWT except callback)
- */
-
-// Initiates Fitbit OAuth flow
-// GET /fitbit/auth
-// router.get("/auth", authenticate, authorizeFitbit);
-router.get("/auth", authorizeFitbit);
-
-// Fitbit redirects back to this URL
-// GET /fitbit/callback
-// NOTE: Does not require JWT because Fitbit sends the user back with ?code=...
-//       BUT you *can* protect it with JWT if this URL is hit from your app only.
-// router.get("/callback", authenticate, handleFitbitCallback);
+// OAuth flow — no auth required (user is not yet logged in via Fitbit)
+router.get("/auth",     authorizeFitbit);
 router.get("/callback", handleFitbitCallback);
 
-// Sync data (requires JWT + Fitbit must be linked)
-// POST /fitbit/sync
-// router.post("/sync", authenticate, syncFitbitData);
-router.post("/sync", syncFitbitData);
-
+// Status check — public so the home screen can check before token is refreshed
 router.get("/status/:userId", getFitbitStatus);
+router.get("/data/:userId",   getFitbitData);
+
+// Protected — require JWT
+router.post("/sync",       authenticate, syncFitbitData);
+router.delete("/disconnect", authenticate, disconnectFitbit);
 
 export default router;

@@ -7,7 +7,7 @@ export type AuthRequest = Request & {
     id: string;
     email?: string;
     role: string;
-    schoolId?: string;
+    orgId?: string;
     permissions: string[];
   };
 };
@@ -45,8 +45,8 @@ export const authenticate = async (
       select: {
         id: true,
         email: true,
-        schoolId: true,
-        school: {
+        orgId: true,
+        org: {
           select: { status: true },
         },
         role: {
@@ -64,35 +64,49 @@ export const authenticate = async (
       return res.status(401).json({ message: "User account no longer exists" });
     }
 
-    // 🛡️ NEW: Billing & Activation Guard
-    // If the user belongs to a school, check the school's lifecycle status
-    if (user.schoolId && user.school) {
-      const status = user.school.status;
+    if (user.orgId && user.org) {
+      const status = user.org.status;
+
+      const isBillingAction =
+        req.originalUrl.includes("/billing/initialize") ||
+        req.originalUrl.includes("/billing/status");
 
       if (status === "PENDING_ACTIVATION") {
         return res
           .status(403)
-          .json({ message: "Your school is awaiting admin approval." });
+          .json({ message: "Your organisation is awaiting admin approval." });
       }
 
-      if (status === "PAYMENT_REQUIRED") {
+      if (status === "PAYMENT_REQUIRED" && !isBillingAction) {
         return res.status(402).json({
           message: "Payment Required",
           code: "SUBSCRIPTION_REQUIRED",
+          user: {
+            id: user.id,
+            email: user.email,
+            orgId: user.orgId,
+            role: user.role.name,
+          },
         });
       }
 
-      if (status === "EXPIRED") {
+      if (status === "EXPIRED" && !isBillingAction) {
         return res.status(402).json({
           message: "Subscription Expired",
           code: "SUBSCRIPTION_EXPIRED",
+          user: {
+            id: user.id,
+            email: user.email,
+            orgId: user.orgId,
+            role: user.role.name,
+          },
         });
       }
 
       if (status === "SUSPENDED") {
         return res
           .status(403)
-          .json({ message: "School access has been suspended." });
+          .json({ message: "Organisation access has been suspended." });
       }
     }
 
@@ -100,13 +114,13 @@ export const authenticate = async (
       id: user.id,
       email: user.email,
       role: user.role.name,
-      schoolId: user.schoolId || undefined,
+      orgId: user.orgId || undefined,
       permissions: user.role.permissions.map((p) => p.permission.name),
     };
 
     next();
   } catch (err) {
-    console.error("DEBUG [Auth Middleware]: CRITICAL ERROR:", err);
+    console.error("[Auth Middleware] Error:", err);
     return res.status(500).json({ message: "Internal auth error" });
   }
 };
@@ -141,7 +155,6 @@ export const authenticateSuperAdmin = async (
       include: { role: true },
     });
 
-    // Super Admins usually don't have a schoolId, so we check role name only
     if (!user || user.role?.name !== "SUPER_ADMIN") {
       return res
         .status(403)
@@ -152,13 +165,13 @@ export const authenticateSuperAdmin = async (
       id: user.id,
       email: user.email!,
       role: user.role.name,
-      schoolId: user.schoolId || undefined,
+      orgId: user.orgId || undefined,
       permissions: [],
     };
 
     next();
   } catch (err) {
-    console.error("DEBUG [SuperAdmin Auth]: CRITICAL ERROR:", err);
+    console.error("[SuperAdmin Auth] Error:", err);
     return res.status(500).json({ message: "Internal auth error" });
   }
 };

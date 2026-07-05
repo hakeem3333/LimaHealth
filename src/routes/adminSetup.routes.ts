@@ -11,9 +11,9 @@ const router = express.Router();
 router.post(
   "/counsellors",
   authenticate,
-  authorizeRole("SCHOOL_ADMIN"),
+  authorizeRole("ORG_ADMIN"),
   addCounsellor
 );
-router.post("/teachers", authenticate, authorizeRole("SCHOOL_ADMIN"), addTeacher);
-router.post("/students", authenticate, authorizeRole("SCHOOL_ADMIN"), addStudent);
+router.post("/teachers", authenticate, authorizeRole("ORG_ADMIN"), addTeacher);
+router.post("/students", authenticate, authorizeRole("ORG_ADMIN"), addStudent);
 export default router;

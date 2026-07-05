@@ -1,79 +1,79 @@
 import express from "express";
-import type { Application, Request, Response } from "express";
+import type { Application, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import session from "express-session";
 import cookieParser from "cookie-parser";
-import routes from "./routes";
-import prisma from "./services/prisma.service.js"; // Make sure to use .js for Node ESM
+import routes from "./routes/index.js";
+import prisma from "./services/prisma.service.js";
+import { stripeWebhook } from "./controllers/billing.controller.js";
 
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || "your_secret_key";
 
-// Global error handlers for async crashes
+const ALLOWED_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+  : ["http://localhost:3001", "http://localhost:8081"];
+
+// Crash safety nets
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
 });
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
+  process.exit(1);
 });
 
 async function startServer() {
   try {
-    // Connect to Prisma DB
     await prisma.$connect();
     console.log("✅ Database connected");
 
-    const app: Application = express();
+const app: Application = express();
 
-    // Middleware
-    app.use(
-      session({
-        secret: SESSION_SECRET,
-        resave: false,
-        saveUninitialized: true,
-        cookie: { secure: process.env.NODE_ENV === "production" },
-      })
+    // Stripe webhook must receive raw body — register before express.json()
+    app.post(
+      "/api/v1/billing/webhook",
+      express.raw({ type: "application/json" }),
+      stripeWebhook,
     );
 
     app.use(
       cors({
-        origin: [
-          "http://localhost:3001",
-          "http://localhost:8081",
-          "http://192.168.43.150:8081",
-        ],
+        origin: ALLOWED_ORIGINS,
         credentials: true,
       }),
     );
 
-    app.use(
-      "/api/v1/billing/webhook",
-      express.raw({ type: "application/json" }),
-    );
-    
     app.use(express.json());
     app.use(cookieParser());
+
+    // Health check
+    app.get("/health", (_req: Request, res: Response) => {
+      res.status(200).json({ status: "ok" });
+    });
 
     // API routes
     app.use("/api/v1", routes);
 
-    // Root route
-    app.get("/", (req: Request, res: Response) => {
-      res.send("Welcome to the BioAware API! Server is up and running.");
+    // Global error handler (must be last)
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      console.error("[Unhandled Error]", err);
+      const status = err.status || err.statusCode || 500;
+      const message =
+        process.env.NODE_ENV === "production"
+          ? "Internal server error"
+          : err.message || "Internal server error";
+      res.status(status).json({ message });
     });
 
-    // Start listening
     app.listen(PORT, () => {
       console.log(`Server is running on http://localhost:${PORT}`);
     });
   } catch (err) {
-    console.error("❌ Failed to start server:", err);
-    process.exit(1); // Exit explicitly if something goes wrong
+    console.error("Failed to start server:", err);
+    process.exit(1);
   }
 }
 
-// Start the server
 startServer();

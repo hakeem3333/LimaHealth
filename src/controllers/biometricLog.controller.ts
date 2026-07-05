@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
 import type { BiometricLog } from "../types/models";
 import { z } from "zod";
+import { evaluateBiometricAlert } from "../services/alertEngine.service";
 
 // 🧱 Zod schema for validation
 const biometricLogSchema = z.object({
@@ -77,6 +78,25 @@ export const createBiometricLog = async (
     const newBiometricLog = await prisma.biometricLog.create({
       data: parsed.data,
     });
+
+    // Run alert engine in background — don't await so it never blocks the response
+    const student = await prisma.user.findUnique({
+      where: { id: parsed.data.userId },
+      select: { orgId: true, firstName: true, lastName: true },
+    });
+
+    if (student?.orgId) {
+      evaluateBiometricAlert({
+        studentId: parsed.data.userId,
+        orgId: student.orgId,
+        heartRate: parsed.data.heartRate,
+        stressLevelScore: parsed.data.stressLevelScore,
+        studentName: `${student.firstName} ${student.lastName}`,
+      }).catch((err) =>
+        console.error("[AlertEngine] Biometric evaluation error:", err.message)
+      );
+    }
+
     res.status(201).json(newBiometricLog);
   } catch (error) {
     console.error("Error creating biometric log:", error);

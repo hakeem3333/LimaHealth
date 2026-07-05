@@ -32,13 +32,13 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
   let filePath: string | null = null;
 
   try {
-    if (!req.user || !["SCHOOL_ADMIN", "ADMIN"].includes(req.user.role)) {
+    if (!req.user || !["ORG_ADMIN", "ADMIN"].includes(req.user.role)) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-    const { id: adminId, schoolId } = req.user;
+    const { id: adminId, orgId } = req.user;
     filePath = req.file.path;
     const fileName = req.file.originalname.toLowerCase();
 
@@ -107,7 +107,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         roleId: roleId,
         originalRoleName: parsed.data.role,
         passwordHash,
-        schoolId,
+        orgId,
         tempPassword,
       });
     }
@@ -161,7 +161,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
     const log = await prisma.bulkUploadLog.create({
       data: {
         adminId,
-        schoolId: schoolId!,
+        orgId: orgId!,
         totalRecords: records.length,
         createdCount: finalUsersToCreate.length,
         failedCount: failedRecords.length,

@@ -8,7 +8,7 @@ import { sendEmail } from "../../services/email.service";
  * GET /super-admin/admins
  * SuperAdmin-only
  */
-export async function listSchoolAdmins(req: AuthRequest, res: Response) {
+export async function listOrgAdmins(req: AuthRequest, res: Response) {
   try {
     if (req.user?.role !== "SUPER_ADMIN") {
       return res.status(403).json({ message: "Forbidden" });
@@ -20,7 +20,7 @@ export async function listSchoolAdmins(req: AuthRequest, res: Response) {
 
     const admins = await prisma.user.findMany({
       where: {
-        role: { name: "SCHOOL_ADMIN" },
+        role: { name: "ORG_ADMIN" },
       },
       orderBy: { createdAt: "desc" },
       take: pageSize,
@@ -32,7 +32,7 @@ export async function listSchoolAdmins(req: AuthRequest, res: Response) {
         lastName: true,
         status: true,
         createdAt: true,
-        school: {
+        org: {
           select: { name: true },
         },
       },
@@ -42,7 +42,7 @@ export async function listSchoolAdmins(req: AuthRequest, res: Response) {
       id: admin.id,
       name: `${admin.firstName} ${admin.lastName}`,
       email: admin.email,
-      schoolName: admin.school?.name ?? "—",
+      orgName: admin.org?.name ?? "—",
       status: admin.status ?? "ACTIVE",
       createdAt: admin.createdAt,
     }));
@@ -54,7 +54,7 @@ export async function listSchoolAdmins(req: AuthRequest, res: Response) {
       data: result,
     });
   } catch (error) {
-    console.error("Failed to list school admins:", error);
+    console.error("Failed to list org admins:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 }
@@ -84,7 +84,7 @@ export async function resetAdminPassword(req: AuthRequest, res: Response) {
       },
     });
 
-    if (!admin || admin.role.name !== "SCHOOL_ADMIN") {
+    if (!admin || admin.role.name !== "ORG_ADMIN") {
       return res.status(404).json({ message: "Admin not found" });
     }
 
@@ -149,7 +149,7 @@ export async function deactivateAdmin(req: AuthRequest, res: Response) {
       },
     });
 
-    if (!admin || admin.role.name !== "SCHOOL_ADMIN") {
+    if (!admin || admin.role.name !== "ORG_ADMIN") {
       return res.status(404).json({ message: "Admin not found" });
     }
 

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import schoolRoutes from "./school.routes.js";
+import organisationRoutes from "./organisation.routes.js";
 import authRoutes from "./auth.routes.js";
 import subscriptionRoutes from "./subscription.routes.js";
 import roleRoutes from "./role.routes.js";
@@ -9,40 +9,46 @@ import moodLogRoutes from "./moodLog.routes.js";
 import alertRoutes from "./alert.routes.js";
 import parentStudentRelationshipRoutes from "./parentStudentRelationship.routes.js";
 import consentRoutes from "./consent.routes.js";
-import fitbitRoutes from './fitbit.routes.js'; //
+import fitbitRoutes from "./fitbit.routes.js";
 import counselorRoutes from "./counselor.routes.js";
 import adminSetupRoutes from "./adminSetup.routes.js";
 import billingRoutes from "./billing.routes.js";
-import schoolAdminDashboardRoutes from "./school-admin/dashboard.routes.js";
-import schoolAdminStudentRoutes from "./school-admin/students.routes.js";
-import schoolAdminCounselorRoutes from "./school-admin/counselors.routes.js";
-import schoolAdminAlertRoutes from "./school-admin/alerts.routes.js";
-import schoolAdminProfileRoutes from "./school-admin/admin.routes.js";
-import schoolReportsRoutes from "./school-admin/schoolReports.routes.js";
-import schoolAdminSettingsRoutes from "./school-admin/schoolSettings.routes.js";
-import schoolAdminWearablesRoutes from "./school-admin/wearables.controller.js";
-import downloadCSV from "./school-admin/downloadCSV.js";
+import orgAdminDashboardRoutes from "./org-admin/dashboard.routes.js";
+import orgAdminMemberRoutes from "./org-admin/members.routes.js";
+import orgAdminCounselorRoutes from "./org-admin/counselors.routes.js";
+import orgAdminAlertRoutes from "./org-admin/alerts.routes.js";
+import orgAdminProfileRoutes from "./org-admin/admin.routes.js";
+import orgReportsRoutes from "./org-admin/orgReports.routes.js";
+import orgAdminSettingsRoutes from "./org-admin/orgSettings.routes.js";
+import orgAdminWearablesRoutes from "./org-admin/orgWearables.routes.js";
+import downloadCSV from "./org-admin/downloadCSV.js";
 import superAdminRoutes from "./super-admin/superAdmin.routes.js";
 import aiRoutes from "./ai.routes.js";
 import appointmentRoutes from "./appointment.routes.js";
 
-
 const router = Router();
 
-// Define all top-level API routes
-router.use("/schools", schoolRoutes);
+// Organisations (public: registration, activation)
+router.use("/organisations", organisationRoutes);
+
+// Auth
 router.use("/auth", authRoutes);
-router.use("/school", schoolAdminDashboardRoutes);
-router.use("/school", schoolAdminStudentRoutes);
-router.use("/school", schoolAdminCounselorRoutes);
-router.use("/school", schoolAdminAlertRoutes);
-router.use("/school", schoolAdminProfileRoutes);
-router.use("/school", schoolReportsRoutes);
-router.use("/school", schoolAdminSettingsRoutes);
-router.use("/school", schoolAdminWearablesRoutes);
+
+// Org Admin routes (previously /school/...)
+router.use("/org", orgAdminDashboardRoutes);
+router.use("/org", orgAdminMemberRoutes);
+router.use("/org", orgAdminCounselorRoutes);
+router.use("/org", orgAdminAlertRoutes);
+router.use("/org", orgAdminProfileRoutes);
+router.use("/org", orgReportsRoutes);
+router.use("/org", orgAdminSettingsRoutes);
+router.use("/org", orgAdminWearablesRoutes);
 router.use("/admin/setup/bulk-upload", downloadCSV);
+
+// Super Admin
 router.use("/super-admin", superAdminRoutes);
 
+// Member-facing routes
 router.use("/subscriptions", subscriptionRoutes);
 router.use("/roles", roleRoutes);
 router.use("/users", userRoutes);
@@ -50,12 +56,11 @@ router.use("/counselor", counselorRoutes);
 router.use("/biometric-logs", biometricLogRoutes);
 router.use("/mood-logs", moodLogRoutes);
 router.use("/alerts", alertRoutes);
-router.use("/parent-student-relationships", parentStudentRelationshipRoutes);
+router.use("/parent-relationships", parentStudentRelationshipRoutes);
 router.use("/consents", consentRoutes);
 router.use("/fitbit", fitbitRoutes);
 router.use("/admin/setup", adminSetupRoutes);
 router.use("/billing", billingRoutes);
-
 router.use("/ai", aiRoutes);
 router.use("/appointments", appointmentRoutes);
 

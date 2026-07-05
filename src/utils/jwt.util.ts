@@ -1,18 +1,22 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-super-secure-secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is not set");
+}
 
 /**
  * 🛠️ JWT Utility Functions
  */
 
-// 1. Access Token: Added schoolStatus to the payload for Middleware checks
+// 1. Access Token
 export const signAccessToken = (payload: {
   sub: string;
   role: string;
-  schoolId?: string;
-  schoolStatus: string;
+  orgId?: string;
+  orgStatus?: string;
+  orgType?: string;
 }) => {
   return jwt.sign({ ...payload, type: "ACCESS" }, JWT_SECRET, {
     expiresIn: "15m",
@@ -26,8 +30,8 @@ export const signRefreshToken = (payload: { sub: string }) => {
   });
 };
 
-// 3. Temp Token: Unchanged
-export const signTempToken = (payload: { userId: string }) => {
+// 3. Temp Token
+export const signTempToken = (payload: { userId: string; role?: string }) => {
   return jwt.sign({ ...payload, purpose: "ADMIN_OTP" }, JWT_SECRET, {
     expiresIn: "10m",
   });

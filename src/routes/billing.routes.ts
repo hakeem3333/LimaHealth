@@ -12,7 +12,7 @@ const router = Router();
 router.post(
   "/initialize",
   authenticate,
-  authorizeRole("SCHOOL_ADMIN"),
+  authorizeRole("ORG_ADMIN"),
   createSubscriptionSession,
 );
 
@@ -23,9 +23,9 @@ router.post(
 );
 
 router.get(
-  "/status/:schoolId",
+  "/status/:orgId",
   authenticate,
-  authorizeRole("SCHOOL_ADMIN."),
+  authorizeRole("ORG_ADMIN."),
   getSubscriptionStatus,
 );
 

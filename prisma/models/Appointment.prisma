@@ -1,0 +1,14 @@
+model Appointment {
+  id          String   @id @default(uuid())
+  studentId   String
+  counselorId String
+  startTime   DateTime
+  endTime     DateTime
+  status      String   @default("PENDING")
+  reason      String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  student     User     @relation("AppointmentsAsStudent",   fields: [studentId],   references: [id])
+  counselor   User     @relation("AppointmentsAsCounselor", fields: [counselorId], references: [id])
+}

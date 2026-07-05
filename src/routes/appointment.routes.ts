@@ -1,15 +1,24 @@
 import { Router } from "express";
-import { bookAppointment, getAppointments, updateAppointmentStatus } from "../controllers/appointment.controller.js";
+import {
+  bookAppointment,
+  getAppointments,
+  getTodaysAppointments,
+  updateAppointmentStatus,
+  updateAvailability,
+} from "../controllers/appointment.controller.js";
+import { authenticate, authorizeRole } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-// POST /api/v1/appointments
-router.post("/", bookAppointment);
+router.use(authenticate);
 
-// GET /api/v1/appointments?userId=...&role=...
-router.get("/", getAppointments);
+// Students
+router.post("/",                            authorizeRole("STUDENT"),   bookAppointment);
+router.get("/",                                                          getAppointments);
 
-// PATCH /api/v1/appointments/:id/status
-router.patch("/:id/status", updateAppointmentStatus);
+// Counselors
+router.get("/today",                        authorizeRole("COUNSELOR"), getTodaysAppointments);
+router.patch("/:id/status",                 authorizeRole("COUNSELOR"), updateAppointmentStatus);
+router.patch("/availability",               authorizeRole("COUNSELOR"), updateAvailability);
 
 export default router;

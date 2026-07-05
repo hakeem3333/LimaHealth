@@ -4,43 +4,50 @@ import {
   verifyToken,
   signAccessToken,
   signRefreshToken,
+  hashToken,
 } from "../utils/jwt.util";
 
 export const handleRefreshToken = async (req: Request, res: Response) => {
-  const oldRefreshToken = req.cookies.refresh_token;
+  // Mobile clients send the token in the body; web clients use HttpOnly cookies
+  const isMobile = req.headers["x-client"] === "mobile";
+  const oldRefreshToken = isMobile
+    ? req.body?.refreshToken
+    : req.cookies.refresh_token;
 
   if (!oldRefreshToken) {
     return res.status(401).json({ message: "Refresh token missing" });
   }
 
-  // 1. Verify the token structure and expiry
-  const { decoded, valid, error } = verifyToken(oldRefreshToken);
+  const { decoded, valid } = verifyToken(oldRefreshToken);
 
-  // 2. Look for the token in the DB
+  // Look up by hashed token
   const savedToken = await prisma.refreshToken.findUnique({
-    where: { token: oldRefreshToken },
-    include: { user: true },
+    where: { tokenHash: hashToken(oldRefreshToken) },
+    include: {
+      user: {
+        include: {
+          role: true,
+          org: true,
+        },
+      },
+    },
   });
 
-  // SECURITY: REUSE DETECTION
-  // If the token is valid but NOT in our DB, it means it was already used and deleted.
-  // This suggests someone stole an old token. We must revoke ALL sessions for this user.
+  // SECURITY: Reuse detection — valid token not in DB means it was already rotated
   if (!savedToken) {
     if (valid && decoded) {
       const userId = (decoded as any).sub;
       await prisma.refreshToken.deleteMany({ where: { userId } });
       res.clearCookie("access_token");
       res.clearCookie("refresh_token");
-      return res
-        .status(403)
-        .json({
-          message: "Security alert: Session compromised. Please login again.",
-        });
+      return res.status(403).json({
+        message: "Security alert: Session compromised. Please login again.",
+      });
     }
     return res.status(403).json({ message: "Invalid refresh session" });
   }
 
-  // 3. Check if the token is actually expired
+  // Token exists in DB but is expired
   if (!valid) {
     await prisma.refreshToken.delete({ where: { id: savedToken.id } });
     return res
@@ -49,33 +56,47 @@ export const handleRefreshToken = async (req: Request, res: Response) => {
   }
 
   const userId = savedToken.userId;
+  const roleName = savedToken.user.role?.name ?? "";
+  const orgStatus = savedToken.user.org?.status ?? undefined;
 
-  // 4. Generate NEW pair (Rotation)
+  // Rotate: generate new token pair
   const newAccessToken = signAccessToken({
     sub: userId,
-    role: savedToken.user.roleId,
+    role: roleName,
+    orgId: savedToken.user.orgId ?? undefined,
+    orgStatus,
   });
   const newRefreshToken = signRefreshToken({ sub: userId });
 
-  // 5. Update the DB: Replace old token with new one
+  // Replace old hash with new hash
   await prisma.refreshToken.update({
     where: { id: savedToken.id },
-    data: { token: newRefreshToken },
+    data: { tokenHash: hashToken(newRefreshToken) },
   });
 
-  // 6. Set new cookies
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (isMobile) {
+    // Mobile: return tokens in body — no cookies
+    return res.status(200).json({
+      message: "Tokens refreshed successfully",
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    });
+  }
+
   res.cookie("access_token", newAccessToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isProd,
     sameSite: "strict",
     maxAge: 15 * 60 * 1000,
   });
 
   res.cookie("refresh_token", newRefreshToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isProd,
     sameSite: "strict",
-    path: "/api/v1/auth/refresh", // Limit scope for security
+    path: "/api/v1/auth",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 

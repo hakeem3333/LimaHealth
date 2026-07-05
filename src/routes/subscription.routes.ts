@@ -29,7 +29,7 @@ const router = Router();
  * schema:
  * type: object
  * properties:
- * schoolId:
+ * orgId:
  * type: string
  * startDate:
  * type: string

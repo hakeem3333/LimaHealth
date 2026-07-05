@@ -18,14 +18,12 @@ const otpSchema = z.object({
 
 export const adminLoginStep2 = async (req: Request, res: Response) => {
   try {
-    // 1️⃣ Validate body
     const parsed = otpSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid input" });
     }
     const { otp } = parsed.data;
 
-    // 2️⃣ Extract temp token from COOKIES
     const tempToken = req.cookies?.admin_temp_token;
     if (!tempToken) {
       return res
@@ -33,25 +31,21 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
         .json({ message: "OTP session expired. Please login again." });
     }
 
-    // 3️⃣ Verify temp token
     const { decoded, valid, error } = verifyToken(tempToken);
     if (!valid) {
       return res.status(401).json({
         message:
-          error === "TokenExpiredError"
-            ? "Session expired."
-            : "Invalid session.",
+          error === "TokenExpiredError" ? "Session expired." : "Invalid session.",
       });
     }
 
     const userId = (decoded as any).userId;
 
-    // 4️⃣ Fetch OTP record & User (Enriched to get actual role and school status)
     const [record, user] = await Promise.all([
       prisma.adminOtp.findUnique({ where: { userId } }),
       prisma.user.findUnique({
         where: { id: userId },
-        include: { role: true, school: true },
+        include: { role: true, org: true },
       }),
     ]);
 
@@ -61,7 +55,6 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
         .json({ message: "Invalid OTP session or user no longer exists" });
     }
 
-    // 5️⃣ Expiry and Attempt check
     if (record.expiresAt < new Date()) {
       await prisma.adminOtp.delete({ where: { userId } });
       return res.status(400).json({ message: "OTP expired" });
@@ -74,7 +67,6 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
         .json({ message: "Too many attempts. Please login again." });
     }
 
-    // 6️⃣ OTP comparison
     const isValid = await bcrypt.compare(otp, record.codeHash);
     if (!isValid) {
       await prisma.adminOtp.update({
@@ -84,80 +76,63 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    // 7️⃣ SUCCESS: Cleanup
     await prisma.adminOtp.delete({ where: { userId } });
     res.clearCookie("admin_temp_token");
 
-    // 8️⃣ Issue Real Access + Refresh Tokens
-    // Pass the status from the database user object into the JWT payload
     const accessToken = signAccessToken({
       sub: userId,
       role: user.role.name,
-      schoolId: user.schoolId ?? undefined,
-      schoolStatus: user.school?.status || "INACTIVE", // 👈 Crucial update
+      orgId: user.orgId ?? undefined,
+      orgStatus: user.org?.status ?? undefined,
     });
 
     const refreshToken = signRefreshToken({ sub: userId });
 
-    // 9️⃣ Store Refresh Token (unchanged)
     await prisma.refreshToken.create({
       data: {
-        userId: userId,
+        userId,
         tokenHash: hashToken(refreshToken),
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
 
-    // 🔟 Set Security Cookies
     const isProd = process.env.NODE_ENV === "production";
 
     res.cookie("access_token", accessToken, {
       httpOnly: true,
       secure: isProd,
-      sameSite: "strict",
+      sameSite: isProd ? "strict" : "lax",
       maxAge: 15 * 60 * 1000,
     });
 
-    // Setting the school_status cookie as a "fast-track" for Middleware
-    if (user.school?.status) {
-      res.cookie("school_status", user.school.status, {
-        httpOnly: false, // Middleware can read this without decoding JWT
+    if (user.org?.status) {
+      res.cookie("org_status", user.org.status, {
+        httpOnly: false, // readable by frontend middleware
         secure: isProd,
         sameSite: "lax",
         path: "/",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
     }
-    
+
     res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
       secure: isProd,
-      sameSite: "strict",
-      path: "/auth/refresh",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      sameSite: isProd ? "strict" : "lax",
+      path: "/api/v1/auth",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
-
-    // 🆕 Set School Status Cookie for Next.js Middleware
-    if (user.school?.status) {
-      res.cookie("school_status", user.school.status, {
-        httpOnly: false, // Middleware needs to read this
-        secure: isProd,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // Sync with refresh token
-      });
-    }
 
     return res.status(200).json({
       message: "Login successful",
       user: {
         id: userId,
         role: user.role.name,
-        schoolStatus: user.school?.status,
+        orgStatus: user.org?.status,
       },
     });
   } catch (err) {
-    console.error("Admin OTP verification error:", err);
+    console.error("[adminLoginStep2] Error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };

@@ -10,9 +10,9 @@ export const createSubscriptionSession = async (
   res: Response,
 ) => {
   try {
-    const { schoolId, planTier, adminEmail } = req.body;
+    const { orgId, planTier, adminEmail } = req.body;
 
-    if (!schoolId || !planTier || !adminEmail) {
+    if (!orgId || !planTier || !adminEmail) {
       return res.status(400).json({ error: "Missing required fields." });
     }
 
@@ -30,7 +30,7 @@ export const createSubscriptionSession = async (
     const session = await createStripeCheckoutSession({
       email: adminEmail,
       priceId,
-      schoolId,
+      orgId,
     });
 
     return res.status(200).json({
@@ -38,14 +38,10 @@ export const createSubscriptionSession = async (
       sessionId: session.id,
     });
   } catch (err) {
-    console.error("Stripe init error:", err);
-    return res
-      .status(500)
-      .json({ error: "Failed to initialize subscription." });
+    console.error("Stripe initialization error:", err);
+    return res.status(500).json({ error: "Failed to initialize subscription." });
   }
 };
-
-// ---------------- WEBHOOK -----------------------
 
 export const stripeWebhook = async (req: Request, res: Response) => {
   const sig = req.headers["stripe-signature"]!;
@@ -58,44 +54,64 @@ export const stripeWebhook = async (req: Request, res: Response) => {
       process.env.STRIPE_WEBHOOK_SECRET!,
     );
   } catch (err) {
-    console.error("⚠️ Webhook signature verification failed:", err);
+    console.error("Webhook signature verification failed:", err);
     return res.status(400).send(`Webhook Error: ${err}`);
   }
 
   try {
-    const sub = event.data.object;
-    const schoolId = sub.metadata?.schoolId;
+    const dataObject = event.data.object;
 
-    if (!schoolId) {
-      console.warn(
-        "⚠️ Webhook received without schoolId in metadata:",
-        event.type,
+    let orgId = dataObject.metadata?.orgId;
+
+    // Fallback: for invoice events, metadata lives on the subscription
+    if (!orgId && dataObject.subscription) {
+      const subscription = await stripe.subscriptions.retrieve(
+        dataObject.subscription as string,
       );
+      orgId = subscription.metadata?.orgId;
     }
 
     switch (event.type) {
       case "customer.subscription.created":
       case "customer.subscription.updated": {
-        // 1. Upsert the Subscription record
+        if (!orgId) break;
+
+        const periodEndTimestamp = dataObject.current_period_end;
+        const currentPeriodEnd = periodEndTimestamp
+          ? new Date(periodEndTimestamp * 1000)
+          : new Date();
+
+        const planTierName =
+          dataObject.items?.data[0]?.price?.nickname || "Standard";
+
         await prisma.subscription.upsert({
-          where: { stripeSubscriptionId: sub.id },
+          where: { stripeSubscriptionId: dataObject.id },
           update: {
-            status: sub.status,
-            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            status: dataObject.status,
+            currentPeriodEnd,
           },
           create: {
-            schoolId: schoolId,
-            stripeSubscriptionId: sub.id,
-            planTier: sub.items.data[0].price.nickname || "Standard",
-            status: sub.status,
-            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            orgId,
+            stripeSubscriptionId: dataObject.id,
+            planTier: planTierName,
+            status: dataObject.status,
+            currentPeriodEnd,
           },
         });
 
-        // 2. 🔑 CRITICAL: Update the School Status to ACTIVE if payment is good
-        if (sub.status === "active" && schoolId) {
-          await prisma.school.update({
-            where: { id: schoolId },
+        if (dataObject.status === "active") {
+          await prisma.organisation.update({
+            where: { id: orgId },
+            data: { status: "ACTIVE" },
+          });
+        }
+        break;
+      }
+
+      case "checkout.session.completed": {
+        if (dataObject.payment_status === "paid" && orgId) {
+          await prisma.organisation.update({
+            where: { id: orgId },
             data: { status: "ACTIVE" },
           });
         }
@@ -103,16 +119,14 @@ export const stripeWebhook = async (req: Request, res: Response) => {
       }
 
       case "customer.subscription.deleted": {
-        // 1. Mark subscription as canceled
         await prisma.subscription.update({
-          where: { stripeSubscriptionId: sub.id },
+          where: { stripeSubscriptionId: dataObject.id },
           data: { status: "canceled" },
         });
 
-        // 2. 🔑 CRITICAL: Move School to EXPIRED
-        if (schoolId) {
-          await prisma.school.update({
-            where: { id: schoolId },
+        if (orgId) {
+          await prisma.organisation.update({
+            where: { id: orgId },
             data: { status: "EXPIRED" },
           });
         }
@@ -120,30 +134,33 @@ export const stripeWebhook = async (req: Request, res: Response) => {
       }
 
       case "invoice.payment_failed": {
-        // Handle failed recurring payments
-        if (schoolId) {
-          await prisma.school.update({
-            where: { id: schoolId },
-            data: { status: "EXPIRED" }, // Or SUSPENDED
+        if (orgId) {
+          await prisma.organisation.update({
+            where: { id: orgId },
+            data: { status: "EXPIRED" },
           });
         }
         break;
       }
+
+      default:
+        // Unhandled event types are intentionally ignored
+        break;
     }
 
     return res.sendStatus(200);
   } catch (err) {
-    console.error("❌ Webhook handling error:", err);
-    return res.sendStatus(500);
+    console.error("Webhook handling error:", err);
+    // Return 200 to prevent Stripe from retrying; error is logged above
+    return res.sendStatus(200);
   }
 };
 
 export const getSubscriptionStatus = async (req: Request, res: Response) => {
-  const { schoolId } = req.params;
-
+  const { orgId } = req.params;
   try {
     const sub = await prisma.subscription.findFirst({
-      where: { schoolId },
+      where: { orgId },
     });
 
     if (!sub) {
@@ -155,6 +172,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
       subscription: sub,
     });
   } catch (err) {
+    console.error("Error fetching subscription status:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 };

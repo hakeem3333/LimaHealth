@@ -1,0 +1,9 @@
+model AIAnalysis {
+  id         String   @id @default(uuid())
+  userId     String
+  context    String
+  inputJson  Json
+  outputJson Json
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+}

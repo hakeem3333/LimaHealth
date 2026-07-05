@@ -35,7 +35,7 @@ export const superAdminRefreshToken = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Unauthorized role" });
     }
 
-    // 5. Generate NEW Access Token
+    // 5. Generate NEW Access Token (super admins have no school)
     const newAccessToken = signAccessToken({
       sub: storedToken.userId,
       role: "SUPER_ADMIN",

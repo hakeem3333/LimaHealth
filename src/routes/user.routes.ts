@@ -33,7 +33,7 @@ const router = Router();
  * type: string
  * password:
  * type: string
- * schoolId:
+ * orgId:
  * type: string
  * roleId:
  * type: string
@@ -102,7 +102,7 @@ router.get("/:id", getUserById);
  * type: string
  * password:
  * type: string
- * schoolId:
+ * orgId:
  * type: string
  * roleId:
  * type: string

@@ -1,76 +1,64 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 
-import prisma from "../../services/prisma.service";
-import { sendVerificationEmail } from "../../services/email.service";
-import { hashToken } from "../../utils/jwt.util";
+import prisma from "../../services/prisma.service.js";
+import { sendVerificationEmail } from "../../services/email.service.js";
+import { hashToken } from "../../utils/jwt.util.js";
+import type { AuthRequest } from "../../types/models.js";
 
-// ==========================================
-// 🧩 Zod Schemas
-// ==========================================
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
 
-const schoolSignupSchema = z.object({
-  name: z.string().min(2, "School name must be at least 2 characters"),
+const orgSignupSchema = z.object({
+  name:          z.string().min(2, "Organisation name must be at least 2 characters"),
   contact_email: z.string().email("Invalid email format"),
-  password: z.string().min(8, "Password must be at least 8 characters long"),
-  website: z
-    .string()
-    .url("Invalid website URL")
-    .optional()
-    .or(z.literal("").transform(() => undefined)),
-  firstName: z.string().min(2, "First name must be at least 2 characters"),
-  lastName: z.string().min(2, "Last name must be at least 2 characters"),
+  password:      z.string().min(8, "Password must be at least 8 characters"),
+  orgType:       z.enum(["SCHOOL", "COMPANY", "HOSPITAL", "NGO"]).default("SCHOOL"),
+  firstName:     z.string().min(2, "First name must be at least 2 characters"),
+  lastName:      z.string().min(2, "Last name must be at least 2 characters"),
 });
 
 const verifyEmailSchema = z.object({
-  token: z.string().uuid("Invalid verification token format"),
+  token: z.string().uuid("Invalid verification token"),
 });
 
-// ==========================================
-// 🏫 Signup Controller
-// ==========================================
+// ---------------------------------------------------------------------------
+// Signup
+// ---------------------------------------------------------------------------
 
-export const schoolSignup = async (req: Request, res: Response) => {
+export const orgSignup = async (req: Request, res: Response) => {
   try {
-    const parseResult = schoolSignupSchema.safeParse(req.body);
-    if (!parseResult.success) {
+    const parsed = orgSignupSchema.safeParse(req.body);
+    if (!parsed.success) {
       return res.status(400).json({
         message: "Invalid input",
-        errors: parseResult.error.flatten().fieldErrors,
+        errors: parsed.error.flatten().fieldErrors,
       });
     }
 
-    const { name, contact_email, password, website, firstName, lastName } =
-      parseResult.data;
+    const { name, contact_email, password, orgType, firstName, lastName } = parsed.data;
 
-    // 1. Check for existing school/admin
-    const existingSchool = await prisma.school.findFirst({
+    const existingOrg = await prisma.organisation.findFirst({
       where: { OR: [{ contact_email }, { name }] },
     });
-
-    if (existingSchool) {
-      return res
-        .status(409)
-        .json({ message: "A school with this name or email already exists" });
+    if (existingOrg) {
+      return res.status(409).json({ message: "An organisation with this name or email already exists" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const rawToken = uuidv4();
-    const tokenHash = hashToken(rawToken);
+    const rawToken       = uuidv4();
+    const tokenHash      = hashToken(rawToken);
 
-    // 2. Database Transaction
     const result = await prisma.$transaction(async (tx) => {
-      const school = await tx.school.create({
-        data: {
-          name,
-          contact_email,
-          website,
-          status: "PENDING_EMAIL_VERIFICATION",
-        },
+      const org = await tx.organisation.create({
+        data: { name, contact_email, orgType, status: "PENDING_EMAIL_VERIFICATION" },
       });
+
+      const orgAdminRole = await tx.role.findUnique({ where: { name: "ORG_ADMIN" } });
+      if (!orgAdminRole) throw new Error("ORG_ADMIN role not found — run seed first");
 
       await tx.user.create({
         data: {
@@ -79,124 +67,104 @@ export const schoolSignup = async (req: Request, res: Response) => {
           email: contact_email,
           passwordHash: hashedPassword,
           isActive: true,
-          role: { connect: { name: "SCHOOL_ADMIN" } },
-          school: { connect: { id: school.id } },
+          roleId: orgAdminRole.id,
+          orgId: org.id,
         },
       });
 
       await tx.emailVerificationToken.create({
         data: {
-          schoolId: school.id,
+          orgId: org.id,
           tokenHash,
-          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000), // 3 Hours
+          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
         },
       });
 
-      return { school };
+      return { org };
     });
 
-    // 3. Send Email
     const emailResult = await sendVerificationEmail(contact_email, rawToken);
 
     return res.status(201).json({
-      message: "Signup successful. Please verify your email.",
-      schoolId: result.school.id,
+      message:     "Signup successful. Please verify your email.",
+      orgId:       result.org.id,
+      orgType:     result.org.orgType,
       previewLink: emailResult?.preview,
     });
   } catch (error) {
-    console.error("Error during signup:", error);
-    return res
-      .status(500)
-      .json({ message: "Internal server error during signup" });
+    console.error("Signup error:", error);
+    return res.status(500).json({ message: "Internal server error during signup" });
   }
 };
 
-// ==========================================
-// ✉️ Verify Email Controller
-// ==========================================
+/** @deprecated use orgSignup — kept temporarily for any unconverted route imports */
+export const schoolSignup = orgSignup;
+
+// ---------------------------------------------------------------------------
+// Verify Email
+// ---------------------------------------------------------------------------
 
 export const verifyEmail = async (req: Request, res: Response) => {
   try {
-    const parseResult = verifyEmailSchema.safeParse(req.query);
-    if (!parseResult.success) {
-      return res.status(400).json({ message: "Invalid token" });
-    }
+    const parsed = verifyEmailSchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid token" });
 
-    const { token } = parseResult.data;
-    const incomingHash = hashToken(token);
+    const { token }       = parsed.data;
+    const incomingHash    = hashToken(token);
 
     const record = await prisma.emailVerificationToken.findUnique({
-      where: { tokenHash: incomingHash },
-      include: { school: true },
+      where:   { tokenHash: incomingHash },
+      include: { org: true },
     });
 
-    if (!record) {
-      return res
-        .status(404)
-        .json({ message: "Verification token invalid or used." });
-    }
-
+    if (!record) return res.status(404).json({ message: "Verification token invalid or already used." });
     if (record.expiresAt < new Date()) {
       return res.status(410).json({
         message: "Token expired.",
-        email: record.school.contact_email,
+        email: record.org.contact_email,
       });
     }
 
-    // Atomic update: Verify school and remove token
     await prisma.$transaction([
-      prisma.school.update({
-        where: { id: record.schoolId },
-        data: { status: "PENDING_ACTIVATION" }, // Now ready for SuperAdmin
+      prisma.organisation.update({
+        where: { id: record.orgId },
+        data:  { status: "PENDING_ACTIVATION" },
       }),
-      prisma.emailVerificationToken.delete({
-        where: { id: record.id },
-      }),
+      prisma.emailVerificationToken.delete({ where: { id: record.id } }),
     ]);
 
     return res.json({
       verified: true,
-      message: "Email verified! Your account is pending Super Admin approval.",
+      message:  "Email verified! Your account is pending Super Admin approval.",
     });
   } catch (error) {
-    console.error("Error verifying email:", error);
+    console.error("Email verification error:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
 
-// ==========================================
-// 🔄 Resend Verification
-// ==========================================
+// ---------------------------------------------------------------------------
+// Resend Verification
+// ---------------------------------------------------------------------------
 
 export const resendVerificationEmail = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: "Email is required" });
 
-    const school = await prisma.school.findUnique({
-      where: { contact_email: email },
-    });
-
-    if (!school) return res.status(404).json({ message: "School not found" });
-
-    // Only allow resend if they haven't been verified yet
-    if (school.status !== "PENDING_EMAIL_VERIFICATION") {
+    const org = await prisma.organisation.findUnique({ where: { contact_email: email } });
+    if (!org) return res.status(404).json({ message: "Organisation not found" });
+    if (org.status !== "PENDING_EMAIL_VERIFICATION") {
       return res.status(400).json({ message: "Email is already verified." });
     }
 
-    const rawToken = uuidv4();
+    const rawToken  = uuidv4();
     const tokenHash = hashToken(rawToken);
 
     await prisma.$transaction([
-      prisma.emailVerificationToken.deleteMany({
-        where: { schoolId: school.id },
-      }),
+      prisma.emailVerificationToken.deleteMany({ where: { orgId: org.id } }),
       prisma.emailVerificationToken.create({
-        data: {
-          tokenHash, // Matches schema field name
-          schoolId: school.id,
-          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
-        },
+        data: { tokenHash, orgId: org.id, expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000) },
       }),
     ]);
 
@@ -207,81 +175,61 @@ export const resendVerificationEmail = async (req: Request, res: Response) => {
   }
 };
 
-// ==========================================
-// 👤 Get Current User (Me)
-// ==========================================
+// ---------------------------------------------------------------------------
+// Get Me
+// ---------------------------------------------------------------------------
 
-export const getMe = async (req: any, res: Response) => {
+export const getMe = async (req: AuthRequest, res: Response) => {
   try {
-    // req.user is populated by your authMiddleware
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        schoolId: true,
-        school: {
-          select: {
-            name: true,
-            status: true, // Vital for frontend redirection logic
-          },
-        },
-        role: {
-          select: {
-            name: true,
-            permissions: {
-              select: { permission: { select: { name: true } } },
-            },
-          },
-        },
-      },
+      where:   { id: req.user!.id },
+      include: { role: true, org: true },
     });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    return res.status(200).json(user);
-  } catch (error) {
-    console.error("GetMe Error:", error);
-    return res.status(500).json({ message: "Internal server error" });
-  }
-};
+    const userData = {
+      id:        user.id,
+      email:     user.email,
+      firstName: user.firstName,
+      lastName:  user.lastName,
+      role:      { name: user.role?.name },
+      orgId:     user.orgId,
+      org:       user.org,
+    };
 
-export const adminLogout = async (req: Request, res: Response) => {
-  try {
-    // 1. Extract refresh token to invalidate it in the DB
-    const refreshToken = req.cookies?.refresh_token;
-
-    if (refreshToken) {
-      await prisma.refreshToken.deleteMany({
-        where: {
-          tokenHash: hashToken(refreshToken),
-        },
+    if (user.org && user.org.status !== "ACTIVE") {
+      return res.status(402).json({
+        message: "Payment Required",
+        code:    "SUBSCRIPTION_REQUIRED",
+        user:    userData,
       });
     }
 
-    // 2. Clear all authentication and status cookies
-    const isProd = process.env.NODE_ENV === "production";
-    const cookieOptions = {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: "strict" as const,
-      path: "/",
-    };
+    return res.status(200).json({ user: userData });
+  } catch (error) {
+    console.error("GetMe error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
 
-    res.clearCookie("access_token", cookieOptions);
+// ---------------------------------------------------------------------------
+// Logout
+// ---------------------------------------------------------------------------
 
-    // Refresh token usually has a specific path
-    res.clearCookie("refresh_token", {
-      ...cookieOptions,
-      path: "/auth/refresh",
-    });
+export const adminLogout = async (req: Request, res: Response) => {
+  try {
+    const refreshToken = req.cookies?.refresh_token;
+    if (refreshToken) {
+      await prisma.refreshToken.deleteMany({ where: { tokenHash: hashToken(refreshToken) } });
+    }
 
-    // Clear the school status cookie (Note: httpOnly was false when set, but clearCookie works)
-    res.clearCookie("school_status", { ...cookieOptions, httpOnly: false });
+    const isProd        = process.env.NODE_ENV === "production";
+    const cookieOptions = { httpOnly: true, secure: isProd, sameSite: "strict" as const, path: "/" };
 
-    // Optional: Clear the temp token just in case
+    res.clearCookie("access_token",    cookieOptions);
+    res.clearCookie("refresh_token",   { ...cookieOptions, path: "/auth/refresh" });
+    res.clearCookie("org_status",      { ...cookieOptions, httpOnly: false });
     res.clearCookie("admin_temp_token", cookieOptions);
 
     return res.status(200).json({ message: "Logged out successfully" });

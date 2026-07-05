@@ -1,40 +1,21 @@
 import { Prisma } from "@prisma/client";
 import type { Request } from "express";
 
-/**
- * Type definition for the School model, including its users and subscriptions.
- */
-export type School = Prisma.SchoolGetPayload<{
-  include: {
-    users: true;
-    subscriptions: true;
-  };
+export type Organisation = Prisma.OrganisationGetPayload<{
+  include: { users: true; subscriptions: true };
 }>;
 
-/**
- * Type definition for the Subscription model, including its related school.
- */
 export type Subscription = Prisma.SubscriptionGetPayload<{
-  include: {
-    school: true;
-  };
+  include: { org: true };
 }>;
 
-/**
- * Type definition for the Role model, including its related users.
- */
 export type Role = Prisma.RoleGetPayload<{
-  include: {
-    users: true;
-  };
+  include: { users: true };
 }>;
 
-/**
- * Type definition for the User model, including all its related data.
- */
 export type User = Prisma.UserGetPayload<{
   include: {
-    school: true;
+    org: true;
     role: true;
     biometricLogs: true;
     moodLogs: true;
@@ -46,64 +27,27 @@ export type User = Prisma.UserGetPayload<{
   };
 }>;
 
-/**
- * Type definition for the BiometricLog model, including its related user.
- */
-export type BiometricLog = Prisma.BiometricLogGetPayload<{
-  include: {
-    user: true;
-  };
+export type BiometricLog = Prisma.BiometricLogGetPayload<{ include: { user: true } }>;
+export type MoodLog      = Prisma.MoodLogGetPayload<{ include: { user: true } }>;
+export type Alert        = Prisma.AlertGetPayload<{ include: { student: true; counselor: true } }>;
+
+export type ParentStudentRelationship = Prisma.ParentStudentRelationshipGetPayload<{
+  include: { parent: true; student: true };
 }>;
 
-/**
- * Type definition for the MoodLog model, including its related user.
- */
-export type MoodLog = Prisma.MoodLogGetPayload<{
-  include: {
-    user: true;
-  };
-}>;
+export type Consent = Prisma.ConsentGetPayload<{ include: { user: true } }>;
 
-/**
- * Type definition for the Alert model, including the student and counselor.
- */
-export type Alert = Prisma.AlertGetPayload<{
-  include: {
-    student: true;
-    counselor: true;
-  };
-}>;
-
-/**
- * Type definition for the ParentStudentRelationship model, including the parent and student.
- */
-export type ParentStudentRelationship =
-  Prisma.ParentStudentRelationshipGetPayload<{
-    include: {
-      parent: true;
-      student: true;
-    };
-  }>;
-
-/**
- * Type definition for the Consent model, including its related user.
- */
-export type Consent = Prisma.ConsentGetPayload<{
-  include: {
-    user: true;
-  };
-}>;
-
-
+// JWT payload set by auth.middleware.ts
 export type JwtUserPayload = {
-  id: string;
-  email: string;
-  roleId: string | null;
-  roleName?: string | null;
-  schoolId?: string | null;
+  id:          string;
+  email?:      string;
+  role:        string;
+  orgId?:      string;
+  orgStatus?:  string;
+  orgType?:    string;
+  permissions: string[];
 };
 
 export interface AuthRequest extends Request {
   user?: JwtUserPayload;
 }
-

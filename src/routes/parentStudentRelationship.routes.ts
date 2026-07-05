@@ -5,156 +5,39 @@ import {
   getParentStudentRelationshipById,
   updateParentStudentRelationship,
   deleteParentStudentRelationship,
-} from "../controllers/parentStudentRelationship.controller.js"; // Added .js
+  getChildHealthData,
+} from "../controllers/parentStudentRelationship.controller.js";
+import { authenticate } from "../middleware/auth.middleware.js";
+import prisma from "../services/prisma.service.js";
+import type { Response, NextFunction } from "express";
+import type { AuthRequest } from "../types/models.js";
 
 const router = Router();
 
 /**
- * @swagger
- * tags:
- * name: ParentStudentRelationships
- * description: API endpoints for managing parent-student relationships.
+ * Guard: only SCHOOL-type organisations support parent relationships.
+ * Returns 403 for any other org type.
  */
+const requireSchoolOrg = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const orgId = req.user?.orgId;
+  if (!orgId) return res.status(401).json({ message: "Unauthorised" });
 
-/**
- * @swagger
- * /parent-student-relationships:
- * post:
- * summary: Creates a new parent-student relationship.
- * tags: [ParentStudentRelationships]
- * requestBody:
- * required: true
- * content:
- * application/json:
- * schema:
- * type: object
- * properties:
- * parentId:
- * type: string
- * studentId:
- * type: string
- * responses:
- * 201:
- * description: Successfully created a new parent-student relationship.
- * 400:
- * description: Invalid input.
- */
-router.post("/", createParentStudentRelationship);
+  const org = await prisma.organisation.findUnique({ where: { id: orgId } });
+  if (!org || org.orgType !== "SCHOOL") {
+    return res.status(403).json({
+      message: "Parent–member relationships are only available for school organisations.",
+    });
+  }
+  next();
+};
 
-/**
- * @swagger
- * /parent-student-relationships:
- * get:
- * summary: Retrieves a list of all parent-student relationships.
- * tags: [ParentStudentRelationships]
- * responses:
- * 200:
- * description: A list of parent-student relationships.
- */
-router.get("/", getAllParentStudentRelationships);
+router.use(authenticate, requireSchoolOrg);
 
-/**
- * @swagger
- * /parent-student-relationships/{id}:
- * get:
- * summary: Retrieves a parent-student relationship by its ID.
- * tags: [ParentStudentRelationships]
- * parameters:
- * - in: path
- * name: id
- * required: true
- * schema:
- * type: string
- * description: The relationship's ID.
- * responses:
- * 200:
- * description: A single parent-student relationship object.
- * 404:
- * description: Relationship not found.
- */
-router.get("/:id", getParentStudentRelationshipById);
-
-/**
- * @swagger
- * /parent-student-relationships/{id}:
- * put:
- * summary: Updates a parent-student relationship by its ID.
- * tags: [ParentStudentRelationships]
- * parameters:
- * - in: path
- * name: id
- * required: true
- * schema:
- * type: string
- * description: The relationship's ID.
- * requestBody:
- * required: true
- * content:
- * application/json:
- * schema:
- * type: object
- * properties:
- * parentId:
- * type: string
- * studentId:
- * type: string
- * responses:
- * 200:
- * description: Successfully updated the relationship.
- * 404:
- * description: Relationship not found.
- * 400:
- * description: Invalid input.
- */
-router.put("/:id", updateParentStudentRelationship);
-
-/**
- * @swagger
- * /parent-student-relationships/{id}:
- * delete:
- * summary: Deletes a parent-student relationship by its ID.
- * tags: [ParentStudentRelationships]
- * parameters:
- * - in: path
- * name: id
- * required: true
- * schema:
- * type: string
- * description: The relationship's ID.
- * responses:
- * 204:
- * description: Relationship successfully deleted.
- * 404:
- * description: Relationship not found.
- */
-router.delete("/:id", deleteParentStudentRelationship);
-
-router.delete("/:id", deleteParentStudentRelationship);
-
-/**
- * @swagger
- * /parent-student-relationships/{parentId}/{studentId}/health:
- * get:
- * summary: Retrieves child health data if consent is given.
- * tags: [ParentStudentRelationships]
- * parameters:
- * - in: path
- * name: parentId
- * required: true
- * schema:
- * type: string
- * - in: path
- * name: studentId
- * required: true
- * schema:
- * type: string
- * responses:
- * 200:
- * description: Health data.
- * 403:
- * description: Consent not granted.
- */
-import { getChildHealthData } from "../controllers/parentStudentRelationship.controller.js"; // Added .js
-router.get("/:parentId/:studentId/health", getChildHealthData);
+router.post(  "/",                                createParentStudentRelationship);
+router.get(   "/",                                getAllParentStudentRelationships);
+router.get(   "/:id",                             getParentStudentRelationshipById);
+router.put(   "/:id",                             updateParentStudentRelationship);
+router.delete("/:id",                             deleteParentStudentRelationship);
+router.get(   "/:parentId/:studentId/health",     getChildHealthData);
 
 export default router;

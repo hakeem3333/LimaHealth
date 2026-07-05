@@ -12,13 +12,13 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 interface CheckoutSessionParams {
   email: string;
   priceId: string;
-  schoolId: string;
+  orgId: string;
 }
 
 export const createStripeCheckoutSession = async ({
   email,
   priceId,
-  schoolId,
+  orgId,
 }: CheckoutSessionParams) => {
 
   try {
@@ -28,12 +28,12 @@ export const createStripeCheckoutSession = async ({
       line_items: [{ price: priceId, quantity: 1 }],
 
       metadata: {
-        schoolId: schoolId,
+        orgId: orgId,
       },
 
       subscription_data: {
         metadata: {
-          schoolId: schoolId,
+          orgId: orgId,
         },
       },
 

@@ -1,14 +1,14 @@
 import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
 import type { User } from "../types/models";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 const saltRounds = 10;
 
 // Zod schemas for input validation
 const createUserSchema = z.object({
-  schoolId: z.string().uuid(),
+  orgId: z.string().uuid(),
   roleId: z.string().uuid(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -17,7 +17,7 @@ const createUserSchema = z.object({
 });
 
 const updateUserSchema = z.object({
-  schoolId: z.string().uuid().optional(),
+  orgId: z.string().uuid().optional(),
   roleId: z.string().uuid().optional(),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
@@ -35,7 +35,7 @@ export const getAllUsers = async (
   try {
     const users: User[] = await prisma.user.findMany({
       include: {
-        school: true,
+        org: true,
         role: true,
         biometricLogs: true,
         moodLogs: true,
@@ -65,7 +65,7 @@ export const getUserById = async (
     const user: User | null = await prisma.user.findUnique({
       where: { id },
       include: {
-        school: true,
+        org: true,
         role: true,
         biometricLogs: true,
         moodLogs: true,

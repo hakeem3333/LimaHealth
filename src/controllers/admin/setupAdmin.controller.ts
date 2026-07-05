@@ -24,29 +24,29 @@ const createUser = async (
 ) => {
   try {
     // 1. Authorization & Subscription Check
-    const schoolId = req.user?.schoolId;
+    const orgId = req.user?.orgId;
 
-    if (!schoolId) {
+    if (!orgId) {
       return res
         .status(403)
-        .json({ message: "Access denied. No school context found." });
+        .json({ message: "Access denied. No organisation context found." });
     }
 
-    // 🛡️ NEW: Check school status before allowing data modification
-    const school = await prisma.school.findUnique({
-      where: { id: schoolId },
+    // 🛡️ Check org status before allowing data modification
+    const org = await prisma.organisation.findUnique({
+      where: { id: orgId },
       select: { status: true },
     });
 
-    if (!school || school.status !== "ACTIVE") {
+    if (!org || org.status !== "ACTIVE") {
       const message =
-        school?.status === "PAYMENT_REQUIRED"
+        org?.status === "PAYMENT_REQUIRED"
           ? "Payment required to add new users."
-          : "School account is not active.";
+          : "Organisation account is not active.";
 
       return res.status(402).json({
         message,
-        status: school?.status,
+        status: org?.status,
       });
     }
 
@@ -78,7 +78,7 @@ const createUser = async (
         lastName,
         email,
         passwordHash,
-        school: { connect: { id: schoolId } },
+        org: { connect: { id: orgId } },
         role: { connect: { name: roleName } },
       },
       select: {

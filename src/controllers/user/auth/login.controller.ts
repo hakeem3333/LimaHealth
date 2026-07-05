@@ -1,78 +1,11 @@
-// import { Request, Response } from "express";
-// import prisma from "../services/prisma.service";
-// import bcrypt from "bcrypt";
-// import jwt from "jsonwebtoken";
-// import { z } from "zod";
-
-// // Zod schema for login validation
-// const loginSchema = z.object({
-//   email: z.string().email(),
-//   password: z.string().min(6),
-// });
-
-// /**
-//  * Login for all user roles (student, counselor, admin, parent)
-//  */
-// export const login = async (req: Request, res: Response) => {
-//   try {
-//     const { email, password } = loginSchema.parse(req.body);
-
-//     // Find user by email
-//     const user = await prisma.user.findUnique({
-//       where: { email },
-//       include: {
-//         role: true,
-//         school: true,
-//       },
-//     });
-
-//     if (!user) {
-//       return res.status(401).json({ error: "Invalid email or password" });
-//     }
-
-//     // Compare password
-//     const validPassword = await bcrypt.compare(password, user.passwordHash);
-//     if (!validPassword) {
-//       return res.status(401).json({ error: "Invalid email or password" });
-//     }
-
-//     // Generate JWT
-//     const token = jwt.sign(
-//       {
-//         id: user.id,
-//         role: user.role.name, // STUDENT | COUNSELOR | ADMIN | PARENT
-//         schoolId: user.schoolId,
-//       },
-//       process.env.JWT_SECRET as string,
-//       { expiresIn: "7d" }
-//     );
-
-//     // Success response
-//     return res.status(200).json({
-//       message: "Login successful",
-//       token,
-//       user: {
-//         id: user.id,
-//         firstName: user.firstName,
-//         lastName: user.lastName,
-//         role: user.role.name,
-//         email: user.email,
-//       },
-//     });
-//   } catch (error) {
-//     if (error instanceof z.ZodError) {
-//       return res.status(400).json({ errors: error.errors });
-//     }
-
-//     console.error("Login error:", error);
-//     return res.status(500).json({ error: "Internal server error" });
-//   }
-// };
-
 import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import prisma from "../../../services/prisma.service";
+import {
+  signAccessToken,
+  signRefreshToken,
+  hashToken,
+} from "../../../utils/jwt.util";
 import { z } from "zod";
 
 export const loginSchema = z.object({
@@ -80,90 +13,30 @@ export const loginSchema = z.object({
   password: z.string().min(6),
 });
 
-// export const login = async (req: Request, res: Response) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     // Find user
-//     const user = await prisma.user.findUnique({
-//       where: { email },
-//       include: { role: true }, // so we return role.name
-//     });
-
-//     if (!user) {
-//       return res.status(400).json({ message: "Invalid credentials" });
-//     }
-
-//     // Verify password
-//     const isMatch = await bcrypt.compare(password, user.passwordHash);
-//     if (!isMatch) {
-//       return res.status(400).json({ message: "Invalid credentials" });
-//     }
-//   //  Log all users (for debugging)
-//     const users = await prisma.user.findMany({
-//       select: { email: true, role: { select: { name: true } } },
-//     });
-//     console.log(users);
-
-//     // Only allow counsellor, student, parent to login
-//     const allowedRoles = ["COUNSELOR", "STUDENT"];
-//     if (!allowedRoles.includes(user.role?.name || "")) {
-//       return res.status(403).json({
-//         message: "Account type not allowed to login here",
-//       });
-//     }
-
-//     // Generate Token
-//     const token = jwt.sign(
-//       {
-//         id: user.id,
-//         email: user.email,
-//         role: user.role?.name,
-//       },
-//       process.env.JWT_SECRET!,
-//       { expiresIn: "7d" }
-//     );
-
-//     return res.json({
-//       message: "Login successful",
-//       token,
-//       user: {
-//         id: user.id,
-//         email: user.email,
-//         role: user.role?.name,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Login error:", error);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
-
 export const login = async (req: Request, res: Response) => {
   try {
-    // 1. Validate Input
     const validatedData = loginSchema.parse(req.body);
     const { email, password } = validatedData;
 
-    // 2. Find User
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { role: true },
+      include: {
+        role: true,
+        org: true,
+      },
     });
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // 3. Verify Password
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // 4. Role Authorization
     const allowedRoles = ["COUNSELOR", "STUDENT", "PARENT"];
-    const userRole = user.role?.name || "";
+    const userRole = user.role?.name ?? "";
 
     if (!allowedRoles.includes(userRole)) {
       return res
@@ -171,27 +44,64 @@ export const login = async (req: Request, res: Response) => {
         .json({ message: "Access denied for this account type" });
     }
 
-    // 5. Generate Token
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: userRole },
-      process.env.JWT_SECRET!,
-      { expiresIn: "7d" },
-    );
+    const accessToken = signAccessToken({
+      sub: user.id,
+      role: userRole,
+      orgId: user.orgId ?? undefined,
+      orgStatus: user.org?.status ?? undefined,
+    });
 
-    return res.status(200).json({
+    const refreshToken = signRefreshToken({ sub: user.id });
+
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(refreshToken),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    const isProd = process.env.NODE_ENV === "production";
+
+    res.cookie("access_token", accessToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refresh_token", refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "strict",
+      path: "/api/v1/auth",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    // Mobile clients can't access HttpOnly cookies, so we also return tokens
+    // in the body when the X-Client: mobile header is present.
+    const isMobile = req.headers["x-client"] === "mobile";
+
+    const responseBody: Record<string, unknown> = {
       message: "Login successful",
-      token,
       user: {
         id: user.id,
         email: user.email,
         role: userRole,
       },
-    });
+    };
+
+    if (isMobile) {
+      responseBody.accessToken = accessToken;
+      responseBody.refreshToken = refreshToken;
+    }
+
+    return res.status(200).json(responseBody);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ errors: error.errors });
     }
     console.error("Login error:", error);
-    res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 };

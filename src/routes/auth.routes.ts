@@ -1,36 +1,43 @@
 import { Router } from "express";
-
-import {
-  schoolSignup,
-  verifyEmail,
-  adminLogout,
-} from "../controllers/admin/auth.controller";
-import { handleRefreshToken } from "../controllers/refreshToken.controller";
-import { adminLoginStep1 } from "../controllers/admin/loginAdmin.controller";
-import { adminLoginStep2 } from "../controllers/admin/verifyAdminOtp.controller";
-
-// import { authenticate, authorizeRole } from "../../middleware/auth.middleware";
-import { authenticate, authorizeRole } from "../middleware/auth.middleware";
-import {
-  uploadFile,
-  bulkUploadUsers,
-  getFailedCSV,
-} from "../controllers/admin/bulkUpload.controller";
-
-import { login, loginSchema } from "../controllers/user/auth/login.controller";
-import validate from "../middleware/validate.middleware";
-import { getMe } from "../controllers/admin/auth.controller.js";
+import { schoolSignup, verifyEmail, adminLogout, getMe } from "../controllers/admin/auth.controller.js";
+import { handleRefreshToken } from "../controllers/refreshToken.controller.js";
+import { adminLoginStep1 } from "../controllers/admin/loginAdmin.controller.js";
+import { adminLoginStep2 } from "../controllers/admin/verifyAdminOtp.controller.js";
+import { authenticate, authorizeRole } from "../middleware/auth.middleware.js";
+import { uploadFile, bulkUploadUsers, getFailedCSV } from "../controllers/admin/bulkUpload.controller.js";
+import { login, loginSchema } from "../controllers/user/auth/login.controller.js";
+import validate from "../middleware/validate.middleware.js";
+import { authLimiter, otpLimiter } from "../middleware/rateLimit.middleware.js";
+import { forgotPassword, resetPassword } from "../controllers/passwordReset.controller.js";
 
 const router = Router();
 
-router.post("/login", validate(loginSchema), login);
+// User login (students, counselors, parents)
+router.post("/login", authLimiter, validate(loginSchema), login);
 
+// School admin signup & email verification
+router.post("/admin/signup",       authLimiter, schoolSignup);
+router.get("/admin/verify-email",               verifyEmail);
 
-// POST /api/v1/admin/upload (file: CSV)
+// School admin 2FA login
+router.post("/admin/login",       authLimiter, adminLoginStep1);
+router.post("/admin/verify-otp",  otpLimiter,  adminLoginStep2);
+
+// Password reset (public — no auth required)
+router.post("/forgot-password",   authLimiter, forgotPassword);
+router.post("/reset-password",                 resetPassword);
+
+// Session management
+router.post("/logout",        adminLogout);
+router.post("/refresh-token", handleRefreshToken);
+
+// Authenticated routes
+router.get("/me", authenticate, authorizeRole("ORG_ADMIN"), getMe);
+
 router.post(
   "/upload",
   authenticate,
-  authorizeRole("SCHOOL_ADMIN"),
+  authorizeRole("ORG_ADMIN"),
   uploadFile,
   bulkUploadUsers,
 );
@@ -38,20 +45,8 @@ router.post(
 router.get(
   "/setup/bulk-upload/failed-csv/:logId",
   authenticate,
-  authorizeRole("SCHOOL_ADMIN"),
+  authorizeRole("ORG_ADMIN"),
   getFailedCSV,
 );
-
-router.post("/admin/signup", schoolSignup);
-router.get("/admin/verify-email", verifyEmail);
-router.post("/admin/login", adminLoginStep1);
-router.post("/admin/verify-otp", adminLoginStep2);
-router.post("/logout", adminLogout);
-router.post("/refresh-token", handleRefreshToken);
-
-router.get("/me",
-   authenticate,
-  authorizeRole("SCHOOL_ADMIN"), 
-  getMe);
 
 export default router;

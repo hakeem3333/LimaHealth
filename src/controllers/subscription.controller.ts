@@ -5,7 +5,7 @@ import type { Subscription } from "../types/models";
 
 // Zod schema for subscription create/update
 const subscriptionSchema = z.object({
-  schoolId: z.string().uuid(),
+  orgId: z.string().uuid(),
   stripeSubscriptionId: z.string(),
   planTier: z.string(),
   status: z.string(),
@@ -23,7 +23,7 @@ export const getAllSubscriptions = async (
 ): Promise<void> => {
   try {
     const subscriptions: Subscription[] = await prisma.subscription.findMany({
-      include: { school: true },
+      include: { org: true },
     });
     res.status(200).json(subscriptions);
   } catch (error) {
@@ -44,7 +44,7 @@ export const getSubscriptionById = async (
     const subscription: Subscription | null =
       await prisma.subscription.findUnique({
         where: { id },
-        include: { school: true },
+        include: { org: true },
       });
     if (!subscription) {
       res.status(404).json({ message: "Subscription not found" });

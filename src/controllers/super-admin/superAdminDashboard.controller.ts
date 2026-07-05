@@ -5,7 +5,7 @@ import prisma from "../../services/prisma.service";
 // Ideally shared across the app
 const ROLES = {
   STUDENT: "STUDENT",
-  SCHOOL_ADMIN: "SCHOOL_ADMIN",
+  ORG_ADMIN: "ORG_ADMIN",
   SUPER_ADMIN: "SUPER_ADMIN",
 } as const;
 
@@ -22,12 +22,12 @@ export async function getSuperAdminDashboard(req: AuthRequest, res: Response) {
 
     // ⚡ Parallelized counts for performance
     const [
-      schoolsCount,
-      studentsCount,
-      schoolAdminsCount,
+      organisationsCount,
+      membersCount,
+      orgAdminsCount,
       unresolvedAlertsCount,
     ] = await Promise.all([
-      prisma.school.count(),
+      prisma.organisation.count(),
 
       prisma.user.count({
         where: {
@@ -37,7 +37,7 @@ export async function getSuperAdminDashboard(req: AuthRequest, res: Response) {
 
       prisma.user.count({
         where: {
-          role: { name: ROLES.SCHOOL_ADMIN },
+          role: { name: ROLES.ORG_ADMIN },
         },
       }),
 
@@ -49,9 +49,9 @@ export async function getSuperAdminDashboard(req: AuthRequest, res: Response) {
     ]);
 
     return res.json({
-      schoolsCount,
-      studentsCount,
-      schoolAdminsCount,
+      organisationsCount,
+      membersCount,
+      orgAdminsCount,
       unresolvedAlertsCount,
     });
   } catch (error) {

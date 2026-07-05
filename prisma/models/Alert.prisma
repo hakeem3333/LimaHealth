@@ -4,6 +4,7 @@ model Alert {
   counselorId String
   timestamp   DateTime @default(now())
   alertType   String
+  severity    String   @default("HIGH")   // CRITICAL | HIGH | MODERATE
   message     String
   isResolved  Boolean  @default(false)
   notes       String?

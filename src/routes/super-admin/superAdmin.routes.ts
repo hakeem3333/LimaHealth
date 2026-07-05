@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { authenticateSuperAdmin, authorizeRole } from "../../middleware/auth.middleware";
+import { authLimiter, otpLimiter } from "../../middleware/rateLimit.middleware";
 import {
-  listSchoolAdmins,
+  listOrgAdmins,
   resetAdminPassword,
   deactivateAdmin,
 } from "../../controllers/super-admin/superAdminAdmins.controller";
@@ -10,16 +11,16 @@ import { getAuditLogs } from "../../controllers/super-admin/auditLogs.controller
 import { getSuperAdminDashboard } from "../../controllers/super-admin/superAdminDashboard.controller";
 import { getSuperAdminReports } from "../../controllers/super-admin/superAdminReports.controller";
 import {
-  getAllSchools,
-  getSchoolById,
-  updateSchool,
-} from "../../controllers/super-admin/superAdminSchools.controller";
+  getAllOrgs,
+  getOrgById,
+  updateOrganisation,
+} from "../../controllers/super-admin/superAdminOrganisations.controller";
 
 import {
-  getSchoolAdmins,
-  assignAdminToSchool,
-  removeAdminFromSchool,
-} from "../../controllers/super-admin/superAdminSchoolAdmins.controller";
+  getOrgAdmins,
+  assignAdminToOrg,
+  removeAdminFromOrg,
+} from "../../controllers/super-admin/superAdminOrgAdmins.controller";
 import {
   getPlatformSettings,
   updatePlatformSettings,
@@ -37,8 +38,8 @@ const router = Router();
    Public / Auth Routes 
    (No middleware here)
 ------------------------------ */
-router.post("/login", superAdminLoginStep1);
-router.post("/verify-otp", superAdminVerifyOtp); // This uses the temp cookie, not the access_token
+router.post("/login", authLimiter, superAdminLoginStep1);
+router.post("/verify-otp", otpLimiter, superAdminVerifyOtp);
 router.post("/refresh-token", superAdminRefreshToken);
 
 /* -----------------------------
@@ -49,7 +50,7 @@ Protected Routes
 router.use(authenticateSuperAdmin);
 router.use(authorizeRole("SUPER_ADMIN"));
 
-router.get("/admins", listSchoolAdmins);
+router.get("/admins", listOrgAdmins);
 router.post("/admins/:id/reset-password", resetAdminPassword);
 router.patch("/admins/:id/deactivate", deactivateAdmin);
 
@@ -59,15 +60,15 @@ router.get("/dashboard", getSuperAdminDashboard);
 
 router.get("/reports", getSuperAdminReports);
 
-router.get("/schools", getAllSchools);
-router.get("/schools/:schoolId", getSchoolById);
-router.put("/schools/:schoolId", updateSchool);
+router.get("/schools", getAllOrgs);
+router.get("/organisations/:orgId", getOrgById);
+router.put("/organisations/:orgId", updateOrganisation);
 
-router.get("/schools/:schoolId/admins", getSchoolAdmins);
+router.get("/organisations/:orgId/admins", getOrgAdmins);
 
-router.post("/schools/:schoolId/admins", assignAdminToSchool);
+router.post("/organisations/:orgId/admins", assignAdminToOrg);
 
-router.delete("/schools/:schoolId/admins/:adminId", removeAdminFromSchool);
+router.delete("/organisations/:orgId/admins/:adminId", removeAdminFromOrg);
 
 
 router.get("/settings", getPlatformSettings);

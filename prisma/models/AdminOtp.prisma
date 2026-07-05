@@ -1,0 +1,10 @@
+model AdminOtp {
+  id        Int      @id @default(autoincrement())
+  userId    String   @unique
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

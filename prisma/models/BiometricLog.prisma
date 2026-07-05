@@ -7,6 +7,9 @@ model BiometricLog {
   gsr               Float
   movement          Float
   stressLevelScore  Float
+  steps             Float     @default(0)
+  calories          Float     @default(0)
+  sleepHours        Float     @default(0)
   createdAt         DateTime  @default(now())
   user              User      @relation(fields: [userId], references: [id])
 }

@@ -4,7 +4,7 @@ import prisma from "../../services/prisma.service";
 
 const ROLES = {
   STUDENT: "STUDENT",
-  SCHOOL_ADMIN: "SCHOOL_ADMIN",
+  ORG_ADMIN: "ORG_ADMIN",
   SUPER_ADMIN: "SUPER_ADMIN",
 } as const;
 
@@ -56,7 +56,7 @@ export async function getSuperAdminReports(req: AuthRequest, res: Response) {
       highRiskStudentsCount,
       wearableLinkedCount,
     ] = await Promise.all([
-      prisma.school.count(),
+      prisma.organisation.count(),
 
       prisma.user.count({
         where: {
@@ -67,7 +67,7 @@ export async function getSuperAdminReports(req: AuthRequest, res: Response) {
       // School admins only (SuperAdmins excluded intentionally)
       prisma.user.count({
         where: {
-          role: { name: ROLES.SCHOOL_ADMIN },
+          role: { name: ROLES.ORG_ADMIN },
         },
       }),
 

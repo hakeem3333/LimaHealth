@@ -1,118 +1,159 @@
 import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
 import { z } from "zod";
-import type { MoodLog } from "../types/models";
+import { evaluateMoodAlert } from "../services/alertEngine.service";
 
-// Zod schema for creating/updating mood logs
-const moodLogSchema = z.object({
-  userId: z.string().uuid("Invalid userId"), // assuming userId is a UUID
-  moodEmoji: z.string().min(1, "Mood emoji is required"),
-  notes: z.string().optional(),
+const MoodEnum = z.enum(["AWFUL", "DOWN", "OKAY", "GOOD", "GREAT"]);
+
+const createMoodSchema = z.object({
+  mood: MoodEnum,
+  notes: z.string().max(500).optional(),
+});
+
+const updateMoodSchema = z.object({
+  mood: MoodEnum.optional(),
+  notes: z.string().max(500).optional(),
 });
 
 /**
- * Retrieves all mood logs from the database.
+ * POST /mood-logs
+ * Create a mood log entry. Fires alert engine if mood is negative.
  */
-export const getAllMoodLogs = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const createMoodLog = async (req: Request, res: Response) => {
   try {
-    const moodLogs: MoodLog[] = await prisma.moodLog.findMany({
-      include: { user: true },
+    const userId = req.user.id;
+
+    const parsed = createMoodSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid input",
+        errors: parsed.error.flatten(),
+      });
+    }
+
+    const { mood, notes } = parsed.data;
+
+    // Spam guard: one log per 5 minutes
+    const recentLog = await prisma.moodLog.findFirst({
+      where: { userId, createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) } },
     });
-    res.status(200).json(moodLogs);
+    if (recentLog) {
+      return res.status(429).json({ message: "You're logging too frequently. Try again shortly." });
+    }
+
+    const moodLog = await prisma.moodLog.create({
+      data: { userId, moodEmoji: mood, notes },
+    });
+
+    // Fire alert engine in the background — never blocks the response
+    const student = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { orgId: true, firstName: true, lastName: true },
+    });
+
+    if (student?.orgId) {
+      evaluateMoodAlert({
+        studentId: userId,
+        orgId: student.orgId,
+        mood,
+        studentName: `${student.firstName} ${student.lastName}`,
+      }).catch((err) =>
+        console.error("[AlertEngine] Mood evaluation error:", err.message)
+      );
+    }
+
+    return res.status(201).json({ message: "Mood logged successfully", data: moodLog });
   } catch (error) {
-    console.error("Error fetching mood logs:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("CREATE MOOD ERROR:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
 /**
- * Retrieves a single mood log by its ID.
+ * GET /mood-logs
+ * Paginated mood history for the authenticated user.
  */
-export const getMoodLogById = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const { id } = req.params;
+export const getMyMoodLogs = async (req: Request, res: Response) => {
   try {
-    const moodLog: MoodLog | null = await prisma.moodLog.findUnique({
+    const userId = req.user.id;
+    const page  = Math.max(Number(req.query.page)  || 1, 1);
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+
+    const [moods, total] = await Promise.all([
+      prisma.moodLog.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.moodLog.count({ where: { userId } }),
+    ]);
+
+    return res.json({ data: moods, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } });
+  } catch (error) {
+    console.error("GET MOODS ERROR:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/**
+ * GET /mood-logs/:id
+ */
+export const getMoodLogById = async (req: Request, res: Response) => {
+  try {
+    const mood = await prisma.moodLog.findFirst({
+      where: { id: req.params.id, userId: req.user.id },
+    });
+    if (!mood) return res.status(404).json({ message: "Mood log not found" });
+    return res.json(mood);
+  } catch (error) {
+    console.error("GET SINGLE ERROR:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/**
+ * PUT /mood-logs/:id
+ */
+export const updateMoodLog = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const parsed = updateMoodSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
+    }
+
+    const existing = await prisma.moodLog.findFirst({ where: { id, userId } });
+    if (!existing) return res.status(404).json({ message: "Mood log not found" });
+
+    const updated = await prisma.moodLog.update({
       where: { id },
-      include: { user: true },
+      data: { moodEmoji: parsed.data.mood, notes: parsed.data.notes },
     });
-    if (!moodLog)
-      return res.status(404).json({ message: "Mood log not found" });
-    res.status(200).json(moodLog);
+
+    return res.json(updated);
   } catch (error) {
-    console.error("Error fetching mood log by ID:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("UPDATE ERROR:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
 /**
- * Creates a new mood log with Zod validation.
+ * DELETE /mood-logs/:id
  */
-export const createMoodLog = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const parseResult = moodLogSchema.safeParse(req.body);
-  if (!parseResult.success) {
-    return res.status(400).json({ errors: parseResult.error.issues });
-  }
-  const { userId, moodEmoji, notes } = parseResult.data;
-
+export const deleteMoodLog = async (req: Request, res: Response) => {
   try {
-    const newMoodLog: MoodLog = await prisma.moodLog.create({
-      data: { userId, moodEmoji, notes },
+    const existing = await prisma.moodLog.findFirst({
+      where: { id: req.params.id, userId: req.user.id },
     });
-    res.status(201).json(newMoodLog);
-  } catch (error) {
-    console.error("Error creating mood log:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
+    if (!existing) return res.status(404).json({ message: "Mood log not found" });
 
-/**
- * Updates an existing mood log by its ID with Zod validation.
- */
-export const updateMoodLog = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const parseResult = moodLogSchema.safeParse(req.body);
-  if (!parseResult.success) {
-    return res.status(400).json({ errors: parseResult.error.issues });
-  }
-  const { userId, moodEmoji, notes } = parseResult.data;
-  const { id } = req.params;
-
-  try {
-    const updatedMoodLog: MoodLog = await prisma.moodLog.update({
-      where: { id },
-      data: { userId, moodEmoji, notes },
-    });
-    res.status(200).json(updatedMoodLog);
+    await prisma.moodLog.delete({ where: { id: req.params.id } });
+    return res.status(204).send();
   } catch (error) {
-    console.error("Error updating mood log:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-/**
- * Deletes a mood log by its ID.
- */
-export const deleteMoodLog = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const { id } = req.params;
-  try {
-    await prisma.moodLog.delete({ where: { id } });
-    res.status(204).send();
-  } catch (error) {
-    console.error("Error deleting mood log:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("DELETE ERROR:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };

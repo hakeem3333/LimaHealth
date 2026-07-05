@@ -43,11 +43,11 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       where: { email },
       include: {
         role: true,
-        school: true,
+        org: true,
       },
     });
 
-    const ALLOWED_ROLES = ["SCHOOL_ADMIN"];
+    const ALLOWED_ROLES = ["ORG_ADMIN"];
 
     if (!user || !ALLOWED_ROLES.includes(user.role?.name ?? "")) {
       return res.status(401).json({
@@ -55,9 +55,9 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       });
     }
 
-    // 🛡️ 2. Updated School Status Logic
-    if (user.school) {
-      const status = user.school.status;
+    // 🛡️ 2. Org status check
+    if (user.org) {
+      const status = user.org.status;
 
       if (status === "PENDING_EMAIL_VERIFICATION") {
         return res.status(403).json({
@@ -78,7 +78,7 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
 
       if (!allowedToLogin.includes(status)) {
         return res.status(403).json({
-          message: `Your school account is ${status.toLowerCase().replace("_", " ")}. Please contact support.`,
+          message: `Your organisation account is ${status.toLowerCase().replace("_", " ")}. Please contact support.`,
         });
       }
     }
@@ -120,7 +120,7 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 5 * 60 * 1000,
+      maxAge: 3 * 60 * 1000,
     });
 
     return res.status(200).json({
