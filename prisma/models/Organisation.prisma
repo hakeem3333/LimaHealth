@@ -10,6 +10,8 @@ enum OrgStatus {
   PENDING_ACTIVATION
   ACTIVE
   SUSPENDED
+  PAYMENT_REQUIRED
+  EXPIRED
 }
 
 model Organisation {
@@ -24,4 +26,5 @@ model Organisation {
   subscriptions   Subscription[]
   activationData  Json?
   emailVerificationTokens EmailVerificationToken[]
+  bulkUploadLogs  BulkUploadLog[]
 }

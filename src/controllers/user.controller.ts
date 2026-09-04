@@ -1,8 +1,13 @@
 import type { Request, Response } from "express";
+import type { AuthRequest } from "../middleware/auth.middleware";
 import prisma from "../services/prisma.service";
 import type { User } from "../types/models";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+
+const pushTokenSchema = z.object({
+  pushToken: z.string().min(1, "pushToken is required"),
+});
 
 const saltRounds = 10;
 
@@ -26,27 +31,38 @@ const updateUserSchema = z.object({
 });
 
 /**
- * Retrieves all users from the database.
+ * Retrieves users within the caller's organisation, optionally filtered by role.
  */
 export const getAllUsers = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ): Promise<void> => {
   try {
-    const users: User[] = await prisma.user.findMany({
-      include: {
-        org: true,
-        role: true,
-        biometricLogs: true,
-        moodLogs: true,
-        alertsAsStudent: true,
-        alertsAsCounselor: true,
-        parentOf: true,
-        studentOf: true,
-        consent: true,
+    const orgId = req.user!.orgId;
+    if (!orgId) {
+      res.status(403).json({ error: "No organisation context" });
+      return;
+    }
+
+    const role = typeof req.query.role === "string" ? req.query.role : undefined;
+
+    const users = await prisma.user.findMany({
+      where: {
+        orgId,
+        isActive: true,
+        ...(role ? { role: { name: role } } : {}),
       },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: { select: { name: true } },
+      },
+      orderBy: { firstName: "asc" },
     });
-    res.status(200).json(users);
+
+    res.status(200).json({ success: true, data: users });
   } catch (error) {
     console.error("Error fetching users:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -62,9 +78,15 @@ export const getUserById = async (
 ): Promise<void> => {
   const { id } = req.params;
   try {
-    const user: User | null = await prisma.user.findUnique({
+    const user = await prisma.user.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        isActive: true,
+        createdAt: true,
         org: true,
         role: true,
         biometricLogs: true,
@@ -74,6 +96,8 @@ export const getUserById = async (
         parentOf: true,
         studentOf: true,
         consent: true,
+        // passwordHash intentionally excluded — never return credential
+        // material, even to a Super Admin caller.
       },
     });
     if (!user) {
@@ -143,6 +167,33 @@ export const updateUser = async (
       return;
     }
     console.error("Error updating user:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * Registers (or clears, when omitted) the caller's own Expo push token.
+ * Self-service only — always acts on the authenticated user, never a
+ * caller-supplied ID.
+ */
+export const registerPushToken = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  const userId = req.user!.id;
+  try {
+    const parsed = pushTokenSchema.parse(req.body);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { pushToken: parsed.pushToken },
+    });
+    res.status(200).json({ success: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ errors: error.errors });
+      return;
+    }
+    console.error("Error registering push token:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

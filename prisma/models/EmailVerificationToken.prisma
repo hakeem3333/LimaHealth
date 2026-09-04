@@ -1,8 +1,8 @@
 model EmailVerificationToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  orgId  String
-  org    Organisation   @relation(fields: [orgId], references: [id])
-  createdAt DateTime @default(now())
+  id        String       @id @default(uuid())
+  tokenHash String       @unique
+  orgId     String
+  org       Organisation @relation(fields: [orgId], references: [id])
+  createdAt DateTime     @default(now())
   expiresAt DateTime
 }

@@ -10,6 +10,12 @@ if (!JWT_SECRET) {
  * 🛠️ JWT Utility Functions
  */
 
+// How long a just-superseded refresh token is still tolerated after
+// rotation, to absorb harmless races (a reload racing an in-flight
+// refresh, a duplicate effect firing twice) without treating them as
+// token theft. Shared by both the org-admin and super-admin refresh flows.
+export const REFRESH_GRACE_WINDOW_MS = 15_000;
+
 // 1. Access Token
 export const signAccessToken = (payload: {
   sub: string;

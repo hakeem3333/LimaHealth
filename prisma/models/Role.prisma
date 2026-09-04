@@ -1,21 +1,28 @@
 model Role {
   id          String           @id @default(uuid())
   name        String           @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   users       User[]
   permissions RolePermission[]
 }
 
 model Permission {
-  id    String           @id @default(uuid())
-  name  String           @unique
-  roles RolePermission[]
+  id        String           @id @default(uuid())
+  name      String           @unique
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  roles     RolePermission[]
 }
 
 model RolePermission {
+  id           String     @id @default(uuid())
   roleId       String
   permissionId String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
   role         Role       @relation(fields: [roleId], references: [id])
   permission   Permission @relation(fields: [permissionId], references: [id])
 
-  @@id([roleId, permissionId])
+  @@unique([roleId, permissionId])
 }

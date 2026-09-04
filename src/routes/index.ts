@@ -25,6 +25,7 @@ import downloadCSV from "./org-admin/downloadCSV.js";
 import superAdminRoutes from "./super-admin/superAdmin.routes.js";
 import aiRoutes from "./ai.routes.js";
 import appointmentRoutes from "./appointment.routes.js";
+import messageRoutes from "./message.routes.js";
 
 const router = Router();
 
@@ -63,5 +64,6 @@ router.use("/admin/setup", adminSetupRoutes);
 router.use("/billing", billingRoutes);
 router.use("/ai", aiRoutes);
 router.use("/appointments", appointmentRoutes);
+router.use("/messages", messageRoutes);
 
 export default router;

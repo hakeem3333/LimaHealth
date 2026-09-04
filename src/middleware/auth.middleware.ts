@@ -22,7 +22,12 @@ export const authenticate = async (
   next: NextFunction,
 ) => {
   try {
-    const token = req.cookies.access_token;
+    // Web clients authenticate via HttpOnly cookie; mobile clients (which can't
+    // store HttpOnly cookies) send the access token as a Bearer header instead.
+    const bearerToken = req.headers.authorization?.startsWith("Bearer ")
+      ? req.headers.authorization.slice(7)
+      : undefined;
+    const token = req.cookies.access_token || bearerToken;
 
     if (!token) {
       return res.status(401).json({ message: "Authentication required" });
@@ -143,7 +148,11 @@ export const authenticateSuperAdmin = async (
 
     const { decoded, valid } = verifyToken(token);
 
-    if (!valid || (decoded as any).role !== "SUPER_ADMIN") {
+    if (
+      !valid ||
+      (decoded as any).type !== "ACCESS" ||
+      (decoded as any).role !== "SUPER_ADMIN"
+    ) {
       return res
         .status(401)
         .json({ message: "Invalid or unauthorized session" });

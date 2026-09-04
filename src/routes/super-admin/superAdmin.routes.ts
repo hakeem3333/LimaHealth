@@ -30,16 +30,18 @@ import {
   superAdminRefreshToken,
 } from "../../controllers/super-admin/superAdminRefreshToken.controller"; 
 import { superAdminLoginStep1,
-  superAdminVerifyOtp,  } from "../../controllers/super-admin/auth.controller";
+  superAdminVerifyOtp,
+  superAdminLogout, } from "../../controllers/super-admin/auth.controller";
 
 const router = Router();
 
 /* -----------------------------
-   Public / Auth Routes 
+   Public / Auth Routes
    (No middleware here)
 ------------------------------ */
 router.post("/login", authLimiter, superAdminLoginStep1);
 router.post("/verify-otp", otpLimiter, superAdminVerifyOtp);
+router.post("/logout", superAdminLogout);
 router.post("/refresh-token", superAdminRefreshToken);
 
 /* -----------------------------
@@ -60,7 +62,7 @@ router.get("/dashboard", getSuperAdminDashboard);
 
 router.get("/reports", getSuperAdminReports);
 
-router.get("/schools", getAllOrgs);
+router.get("/organisations", getAllOrgs);
 router.get("/organisations/:orgId", getOrgById);
 router.put("/organisations/:orgId", updateOrganisation);
 

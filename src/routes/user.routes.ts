@@ -5,7 +5,9 @@ import {
   getUserById,
   updateUser,
   deleteUser,
+  registerPushToken,
 } from "../controllers/user.controller";
+import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 
 const router = Router();
 
@@ -43,7 +45,7 @@ const router = Router();
  * 400:
  * description: Invalid input.
  */
-router.post("/", createUser);
+router.post("/", authenticate, authorizeRole("SUPER_ADMIN"), createUser);
 
 /**
  * @swagger
@@ -55,7 +57,30 @@ router.post("/", createUser);
  * 200:
  * description: A list of users.
  */
-router.get("/", getAllUsers);
+router.get("/", authenticate, getAllUsers);
+
+/**
+ * @swagger
+ * /users/me/push-token:
+ * patch:
+ * summary: Registers the caller's own Expo push token for this device.
+ * tags: [Users]
+ * requestBody:
+ * required: true
+ * content:
+ * application/json:
+ * schema:
+ * type: object
+ * properties:
+ * pushToken:
+ * type: string
+ * responses:
+ * 200:
+ * description: Token registered.
+ * 400:
+ * description: Invalid input.
+ */
+router.patch("/me/push-token", authenticate, registerPushToken);
 
 /**
  * @swagger
@@ -76,7 +101,7 @@ router.get("/", getAllUsers);
  * 404:
  * description: User not found.
  */
-router.get("/:id", getUserById);
+router.get("/:id", authenticate, authorizeRole("SUPER_ADMIN"), getUserById);
 
 /**
  * @swagger
@@ -114,7 +139,7 @@ router.get("/:id", getUserById);
  * 400:
  * description: Invalid input.
  */
-router.put("/:id", updateUser);
+router.put("/:id", authenticate, authorizeRole("SUPER_ADMIN"), updateUser);
 
 /**
  * @swagger
@@ -135,6 +160,6 @@ router.put("/:id", updateUser);
  * 404:
  * description: User not found.
  */
-router.delete("/:id", deleteUser);
+router.delete("/:id", authenticate, authorizeRole("SUPER_ADMIN"), deleteUser);
 
 export default router;

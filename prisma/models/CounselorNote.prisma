@@ -1,0 +1,13 @@
+// Private clinical/session notes a counselor keeps on a student. Never
+// visible to the student — only to the authoring counselor.
+model CounselorNote {
+  id          String   @id @default(uuid())
+  counselorId String
+  studentId   String
+  content     String
+  createdAt   DateTime @default(now())
+  counselor   User     @relation("CounselorNotesAuthored", fields: [counselorId], references: [id], onDelete: Cascade)
+  student     User     @relation("CounselorNotesAboutStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([counselorId, studentId])
+}

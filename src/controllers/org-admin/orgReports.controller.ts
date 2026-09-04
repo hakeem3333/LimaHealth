@@ -15,36 +15,46 @@ export async function getOrgReports(req: AuthRequest, res: Response) {
 
   /* ============================
      Parallel aggregation
+     — students/counselors are Users scoped by role, not separate models.
+     — "interventions" are completed counselor Appointments; there is no
+       standalone Intervention model.
   ============================ */
-  const [studentsCount, alerts, interventionsCount, counselors] =
+  const [studentsCount, alerts, appointments, counselors] =
     await Promise.all([
-      prisma.student.count({
-        where: { orgId },
+      prisma.user.count({
+        where: { orgId, role: { name: "STUDENT" } },
       }),
 
       prisma.alert.findMany({
         where: {
-          orgId,
           createdAt: { gte: fromDate },
+          student: { orgId },
         },
         select: {
-          riskLevel: true,
+          severity: true,
           counselorId: true,
+          studentId: true,
         },
       }),
 
-      prisma.intervention.count({
+      prisma.appointment.findMany({
         where: {
-          orgId,
+          status: "COMPLETED",
           createdAt: { gte: fromDate },
+          student: { orgId },
+        },
+        select: {
+          counselorId: true,
+          studentId: true,
         },
       }),
 
-      prisma.counselor.findMany({
-        where: { orgId },
+      prisma.user.findMany({
+        where: { orgId, role: { name: "COUNSELOR" } },
         select: {
           id: true,
-          name: true,
+          firstName: true,
+          lastName: true,
         },
       }),
     ]);
@@ -53,6 +63,7 @@ export async function getOrgReports(req: AuthRequest, res: Response) {
      Derived stats
   ============================ */
   const alertsCount = alerts.length;
+  const interventionsCount = appointments.length;
 
   const riskDistribution = {
     LOW: 0,
@@ -60,24 +71,42 @@ export async function getOrgReports(req: AuthRequest, res: Response) {
     HIGH: 0,
   };
 
+  // Alert.severity is CRITICAL | HIGH | MODERATE (free-text, not an enum) —
+  // map onto the LOW/MEDIUM/HIGH bands the dashboard displays.
+  const SEVERITY_BAND: Record<string, "LOW" | "MEDIUM" | "HIGH"> = {
+    CRITICAL: "HIGH",
+    HIGH: "HIGH",
+    MODERATE: "MEDIUM",
+  };
+
   alerts.forEach((a) => {
-    riskDistribution[a.riskLevel]++;
+    const band = SEVERITY_BAND[a.severity] ?? "LOW";
+    riskDistribution[band]++;
   });
 
-  const highRiskCount = riskDistribution.HIGH;
+  const highRiskCount = alerts.filter(
+    (a) => a.severity === "HIGH" || a.severity === "CRITICAL",
+  ).length;
 
   /* ============================
      Counselor activity
   ============================ */
   const counselorActivity = counselors.map((c) => {
     const counselorAlerts = alerts.filter((a) => a.counselorId === c.id);
+    const counselorAppointments = appointments.filter(
+      (a) => a.counselorId === c.id,
+    );
+    const activeStudents = new Set([
+      ...counselorAlerts.map((a) => a.studentId),
+      ...counselorAppointments.map((a) => a.studentId),
+    ]);
 
     return {
       id: c.id,
-      name: c.name,
-      students: 0, // optional future metric
+      name: `${c.firstName} ${c.lastName}`.trim(),
+      students: activeStudents.size,
       alertsHandled: counselorAlerts.length,
-      interventions: counselorAlerts.filter((a) => a.counselorId).length,
+      interventions: counselorAppointments.length,
     };
   });
 

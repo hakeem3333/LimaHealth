@@ -87,7 +87,9 @@ export const login = async (req: Request, res: Response) => {
       user: {
         id: user.id,
         email: user.email,
+        firstName: user.firstName,
         role: userRole,
+        mustChangePassword: user.mustChangePassword,
       },
     };
 

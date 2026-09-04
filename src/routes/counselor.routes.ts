@@ -3,6 +3,9 @@ import {
   getCounselorDashboard,
   getStudentsAtRisk,
   getStudentDetails,
+  addStudentNote,
+  getRecentNotes,
+  getStudentInsights,
 } from "../controllers/counselor.controller.js";
 import { authenticate, authorizeRole } from "../middleware/auth.middleware.js";
 
@@ -11,8 +14,11 @@ const router = Router();
 router.use(authenticate);
 router.use(authorizeRole("COUNSELOR"));
 
-router.get("/dashboard",       getCounselorDashboard);
-router.get("/students",        getStudentsAtRisk);
-router.get("/students/:id",    getStudentDetails);
+router.get("/dashboard",            getCounselorDashboard);
+router.get("/students",             getStudentsAtRisk);
+router.get("/students/:id",         getStudentDetails);
+router.post("/students/:id/notes",  addStudentNote);
+router.get("/notes",                getRecentNotes);
+router.get("/students/:id/insights", getStudentInsights);
 
 export default router;

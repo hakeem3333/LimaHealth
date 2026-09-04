@@ -1,5 +1,5 @@
 model AdminOtp {
-  id        Int      @id @default(autoincrement())
+  id        String   @id @default(uuid())
   userId    String   @unique
   codeHash  String
   expiresAt DateTime

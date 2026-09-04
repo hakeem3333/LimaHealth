@@ -1,0 +1,12 @@
+model BulkUploadLog {
+  id           String       @id @default(uuid())
+  adminId      String
+  orgId        String
+  totalRecords Int
+  createdCount Int
+  failedCount  Int
+  errorData    Json?
+  createdAt    DateTime     @default(now())
+  admin        User         @relation(fields: [adminId], references: [id])
+  org          Organisation @relation(fields: [orgId], references: [id])
+}

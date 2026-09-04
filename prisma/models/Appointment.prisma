@@ -1,14 +1,27 @@
+enum AppointmentStatus {
+  PENDING
+  OPTION    // one of 2-3 counselor-proposed times awaiting the student's pick
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
 model Appointment {
-  id          String   @id @default(uuid())
+  id          String            @id @default(uuid())
   studentId   String
   counselorId String
   startTime   DateTime
   endTime     DateTime
-  status      String   @default("PENDING")
+  status      AppointmentStatus @default(PENDING)
   reason      String?
   notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  student     User     @relation("AppointmentsAsStudent",   fields: [studentId],   references: [id])
-  counselor   User     @relation("AppointmentsAsCounselor", fields: [counselorId], references: [id])
+  // Shared by sibling OPTION rows from one counselor-proposed time slate;
+  // null for a normal single appointment (student-booked or counselor-defined).
+  groupId     String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  student     User              @relation("AppointmentsAsStudent",   fields: [studentId],   references: [id])
+  counselor   User              @relation("AppointmentsAsCounselor", fields: [counselorId], references: [id])
+
+  @@index([groupId])
 }

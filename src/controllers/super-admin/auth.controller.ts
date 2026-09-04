@@ -48,20 +48,20 @@ export const superAdminLoginStep1 = async (req: Request, res: Response) => {
       where: { userId: user.id },
       update: {
         codeHash: otpHash,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
         attempts: 0,
       },
       create: {
         userId: user.id,
         codeHash: otpHash,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       },
     });
 
     await sendEmail({
       to: user.email,
       subject: "Super Admin Access Code",
-      text: `Your security code is ${otpCode}. It expires in 10 minutes.`,
+      text: `Your security code is ${otpCode}. It expires in 5 minutes.`,
     });
 
     const tempToken = signTempToken({ userId: user.id, role: "SUPER_ADMIN" });
@@ -70,7 +70,7 @@ export const superAdminLoginStep1 = async (req: Request, res: Response) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 10 * 60 * 1000,
+      maxAge: 5 * 60 * 1000,
     });
 
     return res.status(200).json({ message: "OTP sent to super admin email" });
@@ -169,5 +169,34 @@ export const superAdminVerifyOtp = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("[superAdminVerifyOtp] Error:", err);
     return res.status(500).json({ message: "Server error" });
+  }
+};
+
+/* -----------------------------------------------------------
+   Super Admin Logout
+----------------------------------------------------------- */
+export const superAdminLogout = async (req: Request, res: Response) => {
+  try {
+    const refreshToken = req.cookies?.super_refresh_token;
+    if (refreshToken) {
+      await prisma.refreshToken.deleteMany({
+        where: { tokenHash: hashToken(refreshToken) },
+      });
+    }
+
+    const isProd = process.env.NODE_ENV === "production";
+    const cookieOptions = { httpOnly: true, secure: isProd, sameSite: "strict" as const };
+
+    res.clearCookie("super_access_token", cookieOptions);
+    res.clearCookie("super_refresh_token", {
+      ...cookieOptions,
+      path: "/api/v1/super-admin/refresh-token",
+    });
+    res.clearCookie("super_temp_token", cookieOptions);
+
+    return res.status(200).json({ message: "Logged out successfully" });
+  } catch (err) {
+    console.error("[superAdminLogout] Error:", err);
+    return res.status(500).json({ message: "Server error during logout" });
   }
 };

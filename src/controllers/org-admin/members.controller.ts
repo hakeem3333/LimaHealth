@@ -1,6 +1,11 @@
 import type { Response } from "express";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import { z } from "zod";
 import prisma from "../../services/prisma.service";
 import type { AuthRequest } from "../../middleware/auth.middleware";
+import { sendWelcomeEmail } from "../../services/email.service";
+import { resolveRoleAlias, acceptedRoleValuesDescription } from "../../utils/orgRoleAliases";
 
 export const getOrgMembers = async (req: AuthRequest, res: Response) => {
   const orgId = req.user?.orgId;
@@ -102,5 +107,89 @@ export const getOrgMembers = async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error("Get students error:", error);
     return res.status(500).json({ message: "Failed to load students" });
+  }
+};
+
+const createMemberSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  email: z.string().email("Invalid email"),
+  role: z.string().min(1, "Role is required"),
+});
+
+/**
+ * POST /org/members
+ * Single-row equivalent of the bulk-enrollment flow: accepts the org's own
+ * role vocabulary (Student/Employee/Staff/Member, Counselor/Wellness Coach/
+ * Therapist/Support Worker), maps it to the underlying STUDENT/COUNSELOR
+ * tier, creates the account with a generated temp password, and emails it.
+ */
+export const createOrgMember = async (req: AuthRequest, res: Response) => {
+  const orgId = req.user?.orgId;
+  if (!orgId) {
+    return res.status(403).json({ message: "Organisation access required" });
+  }
+
+  const parsed = createMemberSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.issues[0].message });
+  }
+  const { firstName, lastName, email, role } = parsed.data;
+
+  try {
+    const org = await prisma.organisation.findUnique({
+      where: { id: orgId },
+      select: { orgType: true },
+    });
+
+    const resolvedRole = resolveRoleAlias(org?.orgType, role);
+    if (!resolvedRole) {
+      return res.status(400).json({
+        message: `Unrecognized role "${role}". Expected ${acceptedRoleValuesDescription(org?.orgType)}.`,
+      });
+    }
+
+    const dbRole = await prisma.role.findUnique({ where: { name: resolvedRole } });
+    if (!dbRole) {
+      return res
+        .status(500)
+        .json({ message: `Role ${resolvedRole} is not configured for this platform` });
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      return res.status(409).json({ message: "A user with this email already exists" });
+    }
+
+    const tempPassword = crypto.randomBytes(6).toString("hex");
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        firstName,
+        lastName,
+        email,
+        passwordHash,
+        orgId,
+        roleId: dbRole.id,
+      },
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+
+    sendWelcomeEmail({
+      to: user.email,
+      name: `${user.firstName} ${user.lastName}`,
+      role: resolvedRole,
+      password: tempPassword,
+    }).catch((err) => console.error("Welcome email failed:", user.email, err));
+
+    return res.status(201).json({
+      id: user.id,
+      name: `${user.firstName} ${user.lastName}`,
+      email: user.email,
+    });
+  } catch (error) {
+    console.error("Create member error:", error);
+    return res.status(500).json({ message: "Failed to create member" });
   }
 };

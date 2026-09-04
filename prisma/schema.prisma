@@ -9,44 +9,63 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
 model User {
-  id                      String                      @id @default(uuid())
-  orgId                   String?
-  roleId                  String?
-  firstName               String
-  lastName                String
-  email                   String                      @unique
-  passwordHash            String
-  isActive                Boolean                     @default(true)
-  isAvailable             Boolean                     @default(true)
-  createdAt               DateTime                    @default(now())
-  updatedAt               DateTime                    @updatedAt
-  org                     Organisation?               @relation(fields: [orgId], references: [id])
-  role                    Role?                       @relation(fields: [roleId], references: [id])
-  biometricLogs           BiometricLog[]
-  moodLogs                MoodLog[]
-  alertsAsStudent         Alert[]                     @relation("AlertsAsStudent")
-  alertsAsCounselor       Alert[]                     @relation("AlertsAsCounselor")
-  appointmentsAsStudent   Appointment[]               @relation("AppointmentsAsStudent")
-  appointmentsAsCounselor Appointment[]               @relation("AppointmentsAsCounselor")
-  aiAnalyses              AIAnalysis[]
-  fitbitCredential        FitbitCredential?
-  passwordResetTokens     PasswordResetToken[]
-  parentOf                ParentStudentRelationship[] @relation("ParentToStudent")
-  studentOf               ParentStudentRelationship[] @relation("StudentToParent")
-  consent                 Consent?
-  adminOtp                AdminOtp?
+  id                  String      @id @default(uuid())
+  orgId            String?
+  roleId              String?
+  firstName           String
+  lastName            String
+  email               String      @unique
+  passwordHash        String
+  isActive            Boolean     @default(true)
+  isAvailable         Boolean     @default(true)  // for counselors: accepting new bookings
+  mustChangePassword  Boolean     @default(false) // set on temp-password creation (bulk upload); cleared on first password change
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  org               Organisation? @relation(fields: [orgId], references: [id])
+  role                Role?       @relation(fields: [roleId], references: [id])
+  biometricLogs       BiometricLog[]
+  moodLogs            MoodLog[]
+  alertsAsStudent     Alert[]              @relation("AlertsAsStudent")
+  alertsAsCounselor   Alert[]              @relation("AlertsAsCounselor")
+  appointmentsAsStudent   Appointment[]    @relation("AppointmentsAsStudent")
+  appointmentsAsCounselor Appointment[]    @relation("AppointmentsAsCounselor")
+  aiAnalyses          AIAnalysis[]
+  fitbitCredential    FitbitCredential?
+  passwordResetTokens PasswordResetToken[]
+  parentOf            ParentStudentRelationship[] @relation("ParentToStudent")
+  studentOf           ParentStudentRelationship[] @relation("StudentToParent")
+  // Counselor caseload assignment (a student's assigned counselor, if any)
+  assignedCounselorId String?
+  assignedCounselor   User?       @relation("CounselorAssignments", fields: [assignedCounselorId], references: [id])
+  assignedStudents    User[]      @relation("CounselorAssignments")
+  counselorNotesAuthored     CounselorNote[] @relation("CounselorNotesAuthored")
+  counselorNotesAboutMe      CounselorNote[] @relation("CounselorNotesAboutStudent")
+  weeklyAvailability  CounselorAvailability[] @relation("CounselorAvailability")
+  messagesSent        Message[] @relation("MessagesSent")
+  messagesReceived    Message[] @relation("MessagesReceived")
+  consent             Consent?
+  adminOtp            AdminOtp?
+  refreshTokens       RefreshToken[]
+  auditLogs           AuditLog[]
+  bulkUploadLogs      BulkUploadLog[]
+
+  @@index([assignedCounselorId])
 }
 
+
 model AdminOtp {
-  id        Int      @id @default(autoincrement())
+  id        String   @id @default(uuid())
   userId    String   @unique
   codeHash  String
   expiresAt DateTime
   attempts  Int      @default(0)
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
 
 model AIAnalysis {
   id         String   @id @default(uuid())
@@ -58,13 +77,14 @@ model AIAnalysis {
   user       User     @relation(fields: [userId], references: [id])
 }
 
+
 model Alert {
   id          String   @id @default(uuid())
   studentId   String
   counselorId String
   timestamp   DateTime @default(now())
   alertType   String
-  severity    String   @default("HIGH")
+  severity    String   @default("HIGH")   // CRITICAL | HIGH | MODERATE
   message     String
   isResolved  Boolean  @default(false)
   notes       String?
@@ -73,54 +93,132 @@ model Alert {
   counselor   User     @relation("AlertsAsCounselor", fields: [counselorId], references: [id])
 }
 
+enum AppointmentStatus {
+  PENDING
+  OPTION    // one of 2-3 counselor-proposed times awaiting the student's pick
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
 model Appointment {
-  id          String   @id @default(uuid())
+  id          String            @id @default(uuid())
   studentId   String
   counselorId String
   startTime   DateTime
   endTime     DateTime
-  status      String   @default("PENDING")
+  status      AppointmentStatus @default(PENDING)
   reason      String?
   notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  student     User     @relation("AppointmentsAsStudent", fields: [studentId], references: [id])
-  counselor   User     @relation("AppointmentsAsCounselor", fields: [counselorId], references: [id])
+  // Shared by sibling OPTION rows from one counselor-proposed time slate;
+  // null for a normal single appointment (student-booked or counselor-defined).
+  groupId     String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  student     User              @relation("AppointmentsAsStudent",   fields: [studentId],   references: [id])
+  counselor   User              @relation("AppointmentsAsCounselor", fields: [counselorId], references: [id])
+
+  @@index([groupId])
 }
+
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actorRole  String
+  action     String
+  targetType String?
+  targetId   String?
+  ipAddress  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  actor      User     @relation(fields: [actorId], references: [id])
+
+  @@index([action])
+  @@index([actorRole])
+  @@index([createdAt])
+}
+
 
 model BiometricLog {
-  id               String   @id @default(uuid())
-  userId           String
-  timestamp        DateTime @default(now())
-  heartRate        Float
-  skinTemp         Float
-  gsr              Float
-  movement         Float
-  stressLevelScore Float
-  steps            Float    @default(0)
-  calories         Float    @default(0)
-  sleepHours       Float    @default(0)
-  createdAt        DateTime @default(now())
-  user             User     @relation(fields: [userId], references: [id])
+  id                String    @id @default(uuid())
+  userId            String
+  timestamp         DateTime  @default(now())
+  heartRate         Float
+  skinTemp          Float
+  gsr               Float
+  movement          Float
+  stressLevelScore  Float
+  steps             Float     @default(0)
+  calories          Float     @default(0)
+  sleepHours        Float     @default(0)
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id])
 }
 
-model Consent {
-  id                   String   @id @default(uuid())
-  userId               String   @unique
-  consentGiven         Boolean  @default(false)
-  anonymizeData        Boolean  @default(false)
-  parentalConsentGiven Boolean  @default(false)
-  createdAt            DateTime @default(now())
-  user                 User     @relation(fields: [userId], references: [id])
+model BulkUploadLog {
+  id           String       @id @default(uuid())
+  adminId      String
+  orgId        String
+  totalRecords Int
+  createdCount Int
+  failedCount  Int
+  errorData    Json?
+  createdAt    DateTime     @default(now())
+  admin        User         @relation(fields: [adminId], references: [id])
+  org          Organisation @relation(fields: [orgId], references: [id])
 }
+
+
+model Consent {
+  id                     String    @id @default(uuid())
+  userId                 String    @unique
+  consentGiven           Boolean   @default(false)
+  anonymizeData          Boolean   @default(false)
+  parentalConsentGiven   Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  user                   User      @relation(fields: [userId], references: [id])
+}
+
+// A counselor's recurring weekly working hours. One row per open day —
+// a day with no row is treated as unavailable. Full set is replaced on
+// every save rather than diffed, since a week's schedule is small and
+// edited as a whole.
+model CounselorAvailability {
+  id          String   @id @default(uuid())
+  counselorId String
+  dayOfWeek   Int      // 0 = Sunday ... 6 = Saturday
+  startTime   String   // "HH:mm", 24-hour, local wall-clock time
+  endTime     String   // "HH:mm"
+  createdAt   DateTime @default(now())
+  counselor   User     @relation("CounselorAvailability", fields: [counselorId], references: [id], onDelete: Cascade)
+
+  @@index([counselorId])
+}
+
+
+// Private clinical/session notes a counselor keeps on a student. Never
+// visible to the student — only to the authoring counselor.
+model CounselorNote {
+  id          String   @id @default(uuid())
+  counselorId String
+  studentId   String
+  content     String
+  createdAt   DateTime @default(now())
+  counselor   User     @relation("CounselorNotesAuthored", fields: [counselorId], references: [id], onDelete: Cascade)
+  student     User     @relation("CounselorNotesAboutStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([counselorId, studentId])
+}
+
 
 model EmailVerificationToken {
   id        String       @id @default(uuid())
-  token     String       @unique
+  tokenHash String       @unique
   orgId     String
+  org       Organisation @relation(fields: [orgId], references: [id])
   createdAt DateTime     @default(now())
   expiresAt DateTime
-  org       Organisation @relation(fields: [orgId], references: [id])
 }
 
 model FitbitCredential {
@@ -137,14 +235,34 @@ model FitbitCredential {
   user         User     @relation(fields: [userId], references: [id])
 }
 
+
+// Direct messages between a counselor and one of their assigned students.
+// A "conversation" isn't its own entity — it's just every Message row
+// between two particular users, since each relationship is exactly one
+// counselor and one student (no group chat).
+model Message {
+  id          String   @id @default(uuid())
+  senderId    String
+  recipientId String
+  content     String
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  sender      User     @relation("MessagesSent",     fields: [senderId],    references: [id], onDelete: Cascade)
+  recipient   User     @relation("MessagesReceived",  fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([senderId, recipientId])
+  @@index([recipientId, isRead])
+}
+
+
 model MoodLog {
-  id        String   @id @default(uuid())
-  userId    String
-  timestamp DateTime @default(now())
-  moodEmoji String
-  notes     String?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+  id          String    @id @default(uuid())
+  userId      String
+  timestamp   DateTime  @default(now())
+  moodEmoji   String
+  notes       String?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id])
 }
 
 enum OrgType {
@@ -159,40 +277,81 @@ enum OrgStatus {
   PENDING_ACTIVATION
   ACTIVE
   SUSPENDED
+  PAYMENT_REQUIRED
+  EXPIRED
 }
 
 model Organisation {
-  id                      String                   @id @default(uuid())
-  name                    String
-  contact_email           String
-  orgType                 OrgType                  @default(SCHOOL)
-  status                  OrgStatus                @default(PENDING_EMAIL_VERIFICATION)
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
-  activationData          Json?
-  users                   User[]
-  subscriptions           Subscription[]
+  id              String        @id @default(uuid())
+  name            String
+  contact_email   String
+  orgType         OrgType       @default(SCHOOL)
+  status          OrgStatus     @default(PENDING_EMAIL_VERIFICATION)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  users           User[]
+  subscriptions   Subscription[]
+  activationData  Json?
   emailVerificationTokens EmailVerificationToken[]
+  bulkUploadLogs  BulkUploadLog[]
 }
 
+
 model ParentStudentRelationship {
-  parentId  String
-  studentId String
-  parent    User   @relation("ParentToStudent", fields: [parentId], references: [id])
-  student   User   @relation("StudentToParent", fields: [studentId], references: [id])
+  parentId    String
+  studentId   String
+  parent      User @relation("ParentToStudent", fields: [parentId], references: [id])
+  student     User @relation("StudentToParent", fields: [studentId], references: [id])
 
   @@id([parentId, studentId])
 }
 
 model PasswordResetToken {
-  id        String    @id @default(uuid())
-  tokenHash String    @unique
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
   userId    String
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 }
+
+
+model PlatformSettings {
+  id                       String    @id @default("global")
+  allowOrgSignup           Boolean   @default(true)
+  defaultOrgStatus         OrgStatus @default(PENDING_EMAIL_VERIFICATION)
+  requireEmailVerification Boolean   @default(true)
+  adminOtpExpiryMinutes    Int       @default(10)
+  enforceAuditLogging      Boolean   @default(true)
+  enableWearables          Boolean   @default(true)
+  enableAlerts             Boolean   @default(true)
+  dataRetentionMonths      Int       @default(12)
+  enforceAnonymization     Boolean   @default(false)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+}
+
+
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String
+  tokenHash         String    @unique
+  // Set to the just-superseded tokenHash on each rotation, alongside
+  // rotatedAt, so a token reused within a short grace window (a reload
+  // racing an in-flight refresh, a duplicate effect firing twice) can be
+  // tolerated instead of treated as theft. Cleared once outside the window.
+  previousTokenHash String?
+  rotatedAt         DateTime?
+  expiresAt         DateTime
+  revoked           Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([previousTokenHash])
+}
+
 
 model Role {
   id          String           @id @default(uuid())
@@ -212,6 +371,7 @@ model Permission {
 }
 
 model RolePermission {
+  id           String     @id @default(uuid())
   roleId       String
   permissionId String
   createdAt    DateTime   @default(now())
@@ -219,17 +379,18 @@ model RolePermission {
   role         Role       @relation(fields: [roleId], references: [id])
   permission   Permission @relation(fields: [permissionId], references: [id])
 
-  @@id([roleId, permissionId])
+  @@unique([roleId, permissionId])
 }
 
+
 model Subscription {
-  id                   String       @id @default(uuid())
-  orgId                String
-  stripeSubscriptionId String
-  planTier             String
-  status               String
-  currentPeriodEnd     DateTime
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  org                  Organisation @relation(fields: [orgId], references: [id])
+  id                  String     @id @default(uuid())
+  orgId            String
+  stripeSubscriptionId String     @unique
+  planTier            String
+  status              String
+  currentPeriodEnd    DateTime
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  org               Organisation     @relation(fields: [orgId], references: [id])
 }

@@ -1,0 +1,15 @@
+// A counselor's recurring weekly working hours. One row per open day —
+// a day with no row is treated as unavailable. Full set is replaced on
+// every save rather than diffed, since a week's schedule is small and
+// edited as a whole.
+model CounselorAvailability {
+  id          String   @id @default(uuid())
+  counselorId String
+  dayOfWeek   Int      // 0 = Sunday ... 6 = Saturday
+  startTime   String   // "HH:mm", 24-hour, local wall-clock time
+  endTime     String   // "HH:mm"
+  createdAt   DateTime @default(now())
+  counselor   User     @relation("CounselorAvailability", fields: [counselorId], references: [id], onDelete: Cascade)
+
+  @@index([counselorId])
+}

@@ -93,7 +93,16 @@ export async function getOrgById(req: AuthRequest, res: Response) {
         id: true,
         name: true,
         contact_email: true,
+        orgType: true,
         status: true,
+        createdAt: true,
+        _count: {
+          select: {
+            users: {
+              where: { role: { name: ROLES.STUDENT } },
+            },
+          },
+        },
       },
     });
 
@@ -101,11 +110,22 @@ export async function getOrgById(req: AuthRequest, res: Response) {
       return res.status(404).json({ message: "Organisation not found" });
     }
 
+    const adminsCount = await prisma.user.count({
+      where: {
+        orgId: org.id,
+        role: { name: ROLES.ORG_ADMIN },
+      },
+    });
+
     return res.json({
       id: org.id,
       name: org.name,
       email: org.contact_email,
+      orgType: org.orgType,
       status: org.status,
+      createdAt: org.createdAt,
+      membersCount: org._count?.users ?? 0,
+      adminsCount,
     });
   } catch (error) {
     console.error("Failed to get org:", error);

@@ -83,7 +83,7 @@ export const orgSignup = async (req: Request, res: Response) => {
       return { org };
     });
 
-    const emailResult = await sendVerificationEmail(contact_email, rawToken);
+    const emailResult = await sendVerificationEmail(contact_email, rawToken, result.org.orgType, result.org.name);
 
     return res.status(201).json({
       message:     "Signup successful. Please verify your email.",
@@ -168,7 +168,7 @@ export const resendVerificationEmail = async (req: Request, res: Response) => {
       }),
     ]);
 
-    await sendVerificationEmail(email, rawToken);
+    await sendVerificationEmail(email, rawToken, org.orgType, org.name);
     return res.json({ message: "Verification email resent." });
   } catch (error) {
     return res.status(500).json({ message: "Error resending email" });
@@ -197,6 +197,19 @@ export const getMe = async (req: AuthRequest, res: Response) => {
       orgId:     user.orgId,
       org:       user.org,
     };
+
+    // Keep the middleware-readable org_status cookie in sync with the DB —
+    // it's only ever set at login otherwise, so a status change after login
+    // (e.g. payment completing) would leave middleware routing on stale data.
+    if (user.org?.status) {
+      res.cookie("org_status", user.org.status, {
+        httpOnly: false,
+        secure:   process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path:     "/",
+        maxAge:   7 * 24 * 60 * 60 * 1000,
+      });
+    }
 
     if (user.org && user.org.status !== "ACTIVE") {
       return res.status(402).json({

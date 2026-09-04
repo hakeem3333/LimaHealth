@@ -1,0 +1,18 @@
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String
+  tokenHash         String    @unique
+  // Set to the just-superseded tokenHash on each rotation, alongside
+  // rotatedAt, so a token reused within a short grace window (a reload
+  // racing an in-flight refresh, a duplicate effect firing twice) can be
+  // tolerated instead of treated as theft. Cleared once outside the window.
+  previousTokenHash String?
+  rotatedAt         DateTime?
+  expiresAt         DateTime
+  revoked           Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([previousTokenHash])
+}

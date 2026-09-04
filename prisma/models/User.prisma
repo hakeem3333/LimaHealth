@@ -8,6 +8,8 @@ model User {
   passwordHash        String
   isActive            Boolean     @default(true)
   isAvailable         Boolean     @default(true)  // for counselors: accepting new bookings
+  mustChangePassword  Boolean     @default(false) // set on temp-password creation (bulk upload); cleared on first password change
+  pushToken           String?     // Expo push token for this device; overwritten on each login/registration
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
   org               Organisation? @relation(fields: [orgId], references: [id])
@@ -23,6 +25,20 @@ model User {
   passwordResetTokens PasswordResetToken[]
   parentOf            ParentStudentRelationship[] @relation("ParentToStudent")
   studentOf           ParentStudentRelationship[] @relation("StudentToParent")
+  // Counselor caseload assignment (a student's assigned counselor, if any)
+  assignedCounselorId String?
+  assignedCounselor   User?       @relation("CounselorAssignments", fields: [assignedCounselorId], references: [id])
+  assignedStudents    User[]      @relation("CounselorAssignments")
+  counselorNotesAuthored     CounselorNote[] @relation("CounselorNotesAuthored")
+  counselorNotesAboutMe      CounselorNote[] @relation("CounselorNotesAboutStudent")
+  weeklyAvailability  CounselorAvailability[] @relation("CounselorAvailability")
+  messagesSent        Message[] @relation("MessagesSent")
+  messagesReceived    Message[] @relation("MessagesReceived")
   consent             Consent?
   adminOtp            AdminOtp?
+  refreshTokens       RefreshToken[]
+  auditLogs           AuditLog[]
+  bulkUploadLogs      BulkUploadLog[]
+
+  @@index([assignedCounselorId])
 }

@@ -1,0 +1,14 @@
+model PlatformSettings {
+  id                       String    @id @default("global")
+  allowOrgSignup           Boolean   @default(true)
+  defaultOrgStatus         OrgStatus @default(PENDING_EMAIL_VERIFICATION)
+  requireEmailVerification Boolean   @default(true)
+  adminOtpExpiryMinutes    Int       @default(10)
+  enforceAuditLogging      Boolean   @default(true)
+  enableWearables          Boolean   @default(true)
+  enableAlerts             Boolean   @default(true)
+  dataRetentionMonths      Int       @default(12)
+  enforceAnonymization     Boolean   @default(false)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+}

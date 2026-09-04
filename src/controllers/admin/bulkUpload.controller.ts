@@ -11,21 +11,22 @@ import { Parser } from "json2csv";
 import XLSX from "xlsx";
 import crypto from "crypto";
 import { sendWelcomeEmail } from "../../services/email.service";
+import { resolveRoleAlias, acceptedRoleValuesDescription, getOrgRoleLabels } from "../../utils/orgRoleAliases";
 
 if (!fsSync.existsSync("uploads")) fsSync.mkdirSync("uploads");
 
 const upload = multer({
   dest: "uploads/",
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB Limit
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB — matches the frontend's stated limit
 });
 
 export const uploadFile = upload.single("file");
 
-const userSchema = z.object({
+const baseRowSchema = z.object({
   firstName: z.string().min(1, "Missing first name"),
   lastName: z.string().min(1, "Missing last name"),
   email: z.string().email("Invalid email"),
-  role: z.enum(["STUDENT", "TEACHER", "COUNSELOR"]),
+  role: z.string().min(1, "Missing role"),
 });
 
 export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
@@ -39,8 +40,15 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
     const { id: adminId, orgId } = req.user;
+    const isDryRun = req.body?.dryRun === "true" || req.query?.dryRun === "true";
     filePath = req.file.path;
     const fileName = req.file.originalname.toLowerCase();
+
+    const org = await prisma.organisation.findUnique({
+      where: { id: orgId! },
+      select: { orgType: true },
+    });
+    const roleDescription = acceptedRoleValuesDescription(org?.orgType);
 
     let records: any[] = [];
 
@@ -61,11 +69,10 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: "Unsupported file format." });
     }
 
-    // 2. Fetch Role IDs
+    // 2. Fetch Role IDs for the two underlying role tiers
     const dbRoles = await prisma.role.findMany({
-      where: { name: { in: ["STUDENT", "TEACHER", "COUNSELOR"] } },
+      where: { name: { in: ["STUDENT", "COUNSELOR"] } },
     });
-
     const roleMap = dbRoles.reduce(
       (acc, r) => {
         acc[r.name] = r.id;
@@ -77,9 +84,9 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
     const failedRecords: any[] = [];
     const successPayloads: any[] = [];
 
-    // 3. Validation & Mapping
+    // 3. Validation & Mapping — role column accepts the org's own vocabulary
     for (const record of records) {
-      const parsed = userSchema.safeParse(record);
+      const parsed = baseRowSchema.safeParse(record);
       if (!parsed.success) {
         failedRecords.push({
           ...record,
@@ -88,11 +95,20 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         continue;
       }
 
-      const roleId = roleMap[parsed.data.role];
+      const resolvedRole = resolveRoleAlias(org?.orgType, parsed.data.role);
+      if (!resolvedRole) {
+        failedRecords.push({
+          ...record,
+          error: `Unrecognized role "${parsed.data.role}". Expected ${roleDescription}.`,
+        });
+        continue;
+      }
+
+      const roleId = roleMap[resolvedRole];
       if (!roleId) {
         failedRecords.push({
           ...record,
-          error: `Role ${parsed.data.role} does not exist in DB`,
+          error: `Role ${resolvedRole} is not configured for this platform`,
         });
         continue;
       }
@@ -104,49 +120,71 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         firstName: parsed.data.firstName,
         lastName: parsed.data.lastName,
         email: parsed.data.email,
-        roleId: roleId,
-        originalRoleName: parsed.data.role,
+        roleId,
+        originalRoleName: resolvedRole,
+        rawRoleValue: parsed.data.role,
         passwordHash,
         orgId,
         tempPassword,
+        mustChangePassword: true,
       });
     }
 
     // 4. Filter duplicates
     const emails = successPayloads.map((u) => u.email);
-    const existingUsers = await prisma.user.findMany({
-      where: { email: { in: emails } },
-      select: { email: true },
-    });
+    const existingUsers = emails.length
+      ? await prisma.user.findMany({
+          where: { email: { in: emails } },
+          select: { email: true },
+        })
+      : [];
     const existingEmails = new Set(existingUsers.map((u) => u.email));
 
     const finalUsersToCreate = successPayloads.filter(
       (u) => !existingEmails.has(u.email),
     );
 
-    // Track existing users as failures
     successPayloads.forEach((u) => {
       if (existingEmails.has(u.email)) {
         failedRecords.push({
           firstName: u.firstName,
           lastName: u.lastName,
           email: u.email,
-          role: u.originalRoleName,
+          role: u.rawRoleValue,
           error: "User already exists",
         });
       }
     });
 
-    // 5. Batch Insert
+    // 5. Dry run — validate only, never write, never email, never log
+    if (isDryRun) {
+      return res.status(200).json({
+        preview: true,
+        totalRecords: records.length,
+        wouldCreateCount: finalUsersToCreate.length,
+        wouldFailCount: failedRecords.length,
+        acceptedRoleValues: roleDescription,
+        sampleValid: finalUsersToCreate.slice(0, 5).map((u) => ({
+          firstName: u.firstName,
+          lastName: u.lastName,
+          email: u.email,
+          role: u.rawRoleValue,
+          resolvedRole: u.originalRoleName,
+        })),
+        sampleInvalid: failedRecords.slice(0, 10),
+      });
+    }
+
+    // 6. Batch Insert
     if (finalUsersToCreate.length > 0) {
       await prisma.user.createMany({
         data: finalUsersToCreate.map(
-          ({ tempPassword, originalRoleName, ...userData }) => userData,
+          ({ tempPassword, originalRoleName, rawRoleValue, ...userData }) => userData,
         ),
         skipDuplicates: true,
       });
 
-      // 6. Background Emails
+      // 7. Background Emails
       finalUsersToCreate.forEach((u) => {
         sendWelcomeEmail({
           to: u.email,
@@ -157,7 +195,7 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // 7. Log with errorData
+    // 8. Log with errorData
     const log = await prisma.bulkUploadLog.create({
       data: {
         adminId,
@@ -165,7 +203,6 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         totalRecords: records.length,
         createdCount: finalUsersToCreate.length,
         failedCount: failedRecords.length,
-        // Store as JSON for the CSV downloader
         errorData: failedRecords.length > 0 ? failedRecords : undefined,
       },
     });
@@ -193,7 +230,6 @@ export const getFailedCSV = async (req: AuthRequest, res: Response) => {
     return res.status(404).json({ message: "No failure report found" });
   }
 
-  // Prisma returns Json types directly, no need to JSON.parse if it's already an object
   const failedRecords = Array.isArray(log.errorData) ? log.errorData : [];
 
   const parser = new Parser();
@@ -202,4 +238,43 @@ export const getFailedCSV = async (req: AuthRequest, res: Response) => {
   res.header("Content-Type", "text/csv");
   res.attachment(`failed_upload_${logId}.csv`);
   return res.send(csv);
+};
+
+/**
+ * GET /auth/upload/template
+ * Downloadable XLSX template pre-filled with headers and example rows
+ * using the requesting organisation's own role vocabulary.
+ */
+export const downloadEnrollmentTemplate = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !["ORG_ADMIN", "ADMIN"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    const org = await prisma.organisation.findUnique({
+      where: { id: req.user.orgId! },
+      select: { orgType: true },
+    });
+    const labels = getOrgRoleLabels(org?.orgType);
+
+    const rows = [
+      { firstName: "Jane", lastName: "Doe", email: "jane.doe@example.com", role: labels.member },
+      { firstName: "John", lastName: "Smith", email: "john.smith@example.com", role: labels.support },
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Template");
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader("Content-Disposition", "attachment; filename=enrollment-template.xlsx");
+    return res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
 };

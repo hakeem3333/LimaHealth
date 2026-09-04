@@ -1,7 +1,7 @@
 model Subscription {
   id                  String     @id @default(uuid())
   orgId            String
-  stripeSubscriptionId String
+  stripeSubscriptionId String     @unique
   planTier            String
   status              String
   currentPeriodEnd    DateTime
