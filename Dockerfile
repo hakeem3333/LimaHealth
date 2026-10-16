@@ -19,6 +19,7 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
+RUN npx prisma generate
 
 # Run migrations then start
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
