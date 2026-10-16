@@ -12,6 +12,9 @@ import XLSX from "xlsx";
 import crypto from "crypto";
 import { sendWelcomeEmail } from "../../services/email.service";
 import { resolveRoleAlias, acceptedRoleValuesDescription, getOrgRoleLabels } from "../../utils/orgRoleAliases";
+import { isMinor, parseDateOfBirth } from "../../utils/age.util";
+import { supportsParentRelationship, getMemberLabel, getCounselorLabel } from "../../utils/orgType.util";
+import { linkParentToStudent } from "../parentStudentRelationship.controller";
 
 if (!fsSync.existsSync("uploads")) fsSync.mkdirSync("uploads");
 
@@ -28,6 +31,14 @@ const baseRowSchema = z.object({
   email: z.string().email("Invalid email"),
   role: z.string().min(1, "Missing role"),
 });
+
+const parentRowSchema = z.object({
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  email: z.string().email(),
+});
+
+const cell = (v: unknown) => (v === undefined || v === null ? "" : String(v).trim());
 
 export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
   let filePath: string | null = null;
@@ -46,9 +57,10 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
 
     const org = await prisma.organisation.findUnique({
       where: { id: orgId! },
-      select: { orgType: true },
+      select: { orgType: true, name: true },
     });
     const roleDescription = acceptedRoleValuesDescription(org?.orgType);
+    const consentApplicable = supportsParentRelationship(org?.orgType ?? "");
 
     let records: any[] = [];
 
@@ -113,6 +125,35 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         continue;
       }
 
+      let dateOfBirth: Date | null = null;
+      try {
+        dateOfBirth = parseDateOfBirth(record.dateOfBirth);
+      } catch (err) {
+        failedRecords.push({ ...record, error: (err as Error).message });
+        continue;
+      }
+
+      // Parent columns are all-or-nothing: a half-filled parent can't be emailed.
+      const parentCells = {
+        firstName: cell(record.parentFirstName),
+        lastName: cell(record.parentLastName),
+        email: cell(record.parentEmail),
+      };
+      let parent: z.infer<typeof parentRowSchema> | undefined;
+      // Parent columns only mean something where parental consent applies
+      // (SCHOOL orgs); elsewhere they're ignored rather than validated.
+      if (consentApplicable && (parentCells.firstName || parentCells.lastName || parentCells.email)) {
+        const parsedParent = parentRowSchema.safeParse(parentCells);
+        if (!parsedParent.success) {
+          failedRecords.push({
+            ...record,
+            error: "Parent details need parentFirstName, parentLastName and a valid parentEmail",
+          });
+          continue;
+        }
+        parent = parsedParent.data;
+      }
+
       const tempPassword = crypto.randomBytes(6).toString("hex");
       const passwordHash = await bcrypt.hash(tempPassword, 10);
 
@@ -127,6 +168,8 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         orgId,
         tempPassword,
         mustChangePassword: true,
+        dateOfBirth,
+        parent,
       });
     }
 
@@ -156,6 +199,15 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       }
     });
 
+    // Under-18 students who need a parental consent email (SCHOOL orgs only)
+    const minorStudents = consentApplicable
+      ? finalUsersToCreate.filter(
+          (u) => u.originalRoleName === "STUDENT" && isMinor(u.dateOfBirth) === true,
+        )
+      : [];
+    const minorsWithParent = minorStudents.filter((u) => u.parent);
+    const minorsMissingParentCount = minorStudents.length - minorsWithParent.length;
+
     // 5. Dry run — validate only, never write, never email, never log
     if (isDryRun) {
       return res.status(200).json({
@@ -163,6 +215,9 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
         totalRecords: records.length,
         wouldCreateCount: finalUsersToCreate.length,
         wouldFailCount: failedRecords.length,
+        minorsCount: minorStudents.length,
+        minorsWithParentCount: minorsWithParent.length,
+        minorsMissingParentCount,
         acceptedRoleValues: roleDescription,
         sampleValid: finalUsersToCreate.slice(0, 5).map((u) => ({
           firstName: u.firstName,
@@ -176,21 +231,56 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
     }
 
     // 6. Batch Insert
+    let consentRequestsSent = 0;
+    const parentLinkFailures: { email: string; error: string }[] = [];
+
     if (finalUsersToCreate.length > 0) {
       await prisma.user.createMany({
         data: finalUsersToCreate.map(
-          ({ tempPassword, originalRoleName, rawRoleValue, ...userData }) => userData,
+          ({ tempPassword, originalRoleName, rawRoleValue, parent, ...userData }) => userData,
         ),
         skipDuplicates: true,
       });
+
+      // Link parents (which also sends the consent email) for under-18 students.
+      // Done after the batch insert because createMany doesn't return ids.
+      if (minorsWithParent.length > 0) {
+        const created = await prisma.user.findMany({
+          where: { orgId: orgId!, email: { in: minorsWithParent.map((u) => u.email) } },
+          select: { id: true, email: true, firstName: true, lastName: true },
+        });
+        const createdByEmail = new Map(created.map((c) => [c.email, c]));
+
+        for (const u of minorsWithParent) {
+          const student = createdByEmail.get(u.email);
+          if (!student) continue;
+          try {
+            const link = await linkParentToStudent({
+              orgId: orgId!,
+              student: { ...student, org: { orgType: org?.orgType, name: org?.name } },
+              ...u.parent!,
+            });
+            if (link.ok) consentRequestsSent++;
+            else parentLinkFailures.push({ email: u.email, error: link.message });
+          } catch (err) {
+            console.error("Bulk parent link failed:", u.email, err);
+            parentLinkFailures.push({ email: u.email, error: "Could not link parent" });
+          }
+        }
+      }
 
       // 7. Background Emails
       finalUsersToCreate.forEach((u) => {
         sendWelcomeEmail({
           to: u.email,
           name: `${u.firstName} ${u.lastName}`,
-          role: u.originalRoleName,
+          // The org's own word for the role ("Patient", "Doctor", …), not the internal tier
+          role: u.originalRoleName === "COUNSELOR"
+            ? getCounselorLabel(org?.orgType ?? "")
+            : getMemberLabel(org?.orgType ?? ""),
           password: u.tempPassword,
+          orgType: org?.orgType,
+          orgName: org?.name,
         }).catch((err) => console.error("Email failed:", u.email, err));
       });
     }
@@ -213,6 +303,9 @@ export const bulkUploadUsers = async (req: AuthRequest, res: Response) => {
       createdCount: finalUsersToCreate.length,
       failedCount: failedRecords.length,
       failedDownload: failedRecords.length > 0 ? `/failed-csv/${log.id}` : null,
+      consentRequestsSent,
+      minorsMissingParentCount,
+      parentLinkFailures,
     });
   } catch (err) {
     console.error(err);
@@ -257,10 +350,35 @@ export const downloadEnrollmentTemplate = async (req: AuthRequest, res: Response
     });
     const labels = getOrgRoleLabels(org?.orgType);
 
-    const rows = [
-      { firstName: "Jane", lastName: "Doe", email: "jane.doe@example.com", role: labels.member },
-      { firstName: "John", lastName: "Smith", email: "john.smith@example.com", role: labels.support },
-    ];
+    // Schools collect date of birth + parent details so consent emails for
+    // under-18 students can go out automatically at enrollment.
+    const rows = supportsParentRelationship(org?.orgType ?? "")
+      ? [
+          {
+            firstName: "Jane",
+            lastName: "Doe",
+            email: "jane.doe@example.com",
+            role: labels.member,
+            dateOfBirth: "2012-04-15",
+            parentFirstName: "Mary",
+            parentLastName: "Doe",
+            parentEmail: "mary.doe@example.com",
+          },
+          {
+            firstName: "John",
+            lastName: "Smith",
+            email: "john.smith@example.com",
+            role: labels.support,
+            dateOfBirth: "",
+            parentFirstName: "",
+            parentLastName: "",
+            parentEmail: "",
+          },
+        ]
+      : [
+          { firstName: "Jane", lastName: "Doe", email: "jane.doe@example.com", role: labels.member },
+          { firstName: "John", lastName: "Smith", email: "john.smith@example.com", role: labels.support },
+        ];
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();

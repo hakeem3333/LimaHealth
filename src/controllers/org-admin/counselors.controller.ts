@@ -1,6 +1,8 @@
 import type { Response } from "express";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import prisma from "../../services/prisma.service";
+import { riskFromSeverities } from "../../utils/risk.util";
 import type { AuthRequest } from "../../middleware/auth.middleware";
 
 export const listCounselors = async (req: AuthRequest, res: Response) => {
@@ -31,6 +33,7 @@ export const listCounselors = async (req: AuthRequest, res: Response) => {
         lastName: true,
         email: true,
         isActive: true,
+        createdAt: true,
         assignedStudents: {
           select: { id: true },
         },
@@ -43,6 +46,7 @@ export const listCounselors = async (req: AuthRequest, res: Response) => {
       name: `${c.firstName} ${c.lastName}`,
       email: c.email,
       isActive: c.isActive,
+      createdAt: c.createdAt,
       studentsCount: c.assignedStudents.length,
     }));
 
@@ -100,7 +104,8 @@ export const getCounselorProfile = async (req: AuthRequest, res: Response) => {
               take: 1,
             },
             alertsAsStudent: {
-              select: { alertType: true, isResolved: true },
+              where: { isResolved: false },
+              select: { severity: true },
             },
           },
         },
@@ -112,10 +117,7 @@ export const getCounselorProfile = async (req: AuthRequest, res: Response) => {
 
     // Map students
     const students = counselor.assignedStudents.map((student) => {
-      const latestAlert = student.alertsAsStudent.slice(-1)[0];
-      const riskLevel = latestAlert
-        ? latestAlert.alertType.toUpperCase()
-        : "LOW"; // Example
+      const riskLevel = riskFromSeverities(student.alertsAsStudent.map((a) => a.severity));
       const wearableConnected = student.biometricLogs.length > 0;
       return {
         id: student.id,
@@ -185,10 +187,13 @@ export const assignStudentsToCounselor = async (
   try {
     const counselor = await prisma.user.findFirst({
       where: { id: counselorId, orgId, role: { name: "COUNSELOR" } },
-      select: { id: true },
+      select: { id: true, isActive: true },
     });
     if (!counselor) {
       return res.status(404).json({ message: "Counselor not found" });
+    }
+    if (!counselor.isActive && studentIds.length > 0) {
+      return res.status(409).json({ message: "Reactivate this counselor before assigning students" });
     }
 
     await prisma.$transaction([
@@ -215,12 +220,18 @@ export const assignStudentsToCounselor = async (
 
 const setActiveSchema = z.object({
   isActive: z.boolean(),
+  // When deactivating someone with a caseload, the admin must say where those
+  // students go: another active counselor, or explicitly unassigned.
+  reassignToId: z.string().uuid().optional(),
+  unassign: z.boolean().optional(),
 });
 
 /**
  * PATCH /org/counselors/:counselorId/status
- * Activate/deactivate a counselor account. Deactivating does not touch
- * their assigned caseload — reassign it separately if needed.
+ * Activate/deactivate a counselor account. Deactivating a counselor who still
+ * has students is refused (409 CASELOAD_NOT_EMPTY) unless the request moves
+ * them to `reassignToId` or sets `unassign: true` — otherwise those students'
+ * bookings and messages would go to an account nobody can sign in to.
  */
 export const setCounselorActive = async (req: AuthRequest, res: Response) => {
   const orgId = req.user?.orgId;
@@ -244,12 +255,57 @@ export const setCounselorActive = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: "Counselor not found" });
     }
 
-    await prisma.user.update({
-      where: { id: counselorId },
-      data: { isActive: parsed.data.isActive },
-    });
+    const { isActive, reassignToId, unassign } = parsed.data;
+    let caseloadOps: Prisma.PrismaPromise<unknown>[] = [];
+    let movedCount = 0;
 
-    return res.json({ message: "Status updated", isActive: parsed.data.isActive });
+    if (!isActive) {
+      movedCount = await prisma.user.count({ where: { assignedCounselorId: counselorId } });
+
+      if (movedCount > 0) {
+        if (reassignToId) {
+          if (reassignToId === counselorId) {
+            return res.status(400).json({ message: "Choose a different counselor to take over the caseload" });
+          }
+          const target = await prisma.user.findFirst({
+            where: { id: reassignToId, orgId, isActive: true, role: { name: "COUNSELOR" } },
+            select: { id: true },
+          });
+          if (!target) {
+            return res.status(400).json({ message: "The counselor taking over must be active and in your organisation" });
+          }
+        } else if (!unassign) {
+          return res.status(409).json({
+            message: `This counselor still has ${movedCount} assigned student${movedCount === 1 ? "" : "s"}. Reassign them before deactivating.`,
+            code: "CASELOAD_NOT_EMPTY",
+            studentsCount: movedCount,
+          });
+        }
+
+        caseloadOps = [
+          prisma.user.updateMany({
+            where: { assignedCounselorId: counselorId },
+            data: { assignedCounselorId: reassignToId ?? null },
+          }),
+        ];
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: counselorId },
+        data: { isActive },
+      }),
+      ...caseloadOps,
+      // Deactivation ends any live sessions; login and refresh also refuse inactive users.
+      ...(isActive ? [] : [prisma.refreshToken.deleteMany({ where: { userId: counselorId } })]),
+    ]);
+
+    return res.json({
+      message: "Status updated",
+      isActive,
+      ...(caseloadOps.length ? { studentsMoved: movedCount, reassignedTo: reassignToId ?? null } : {}),
+    });
   } catch (error) {
     console.error("Set counselor active error:", error);
     return res.status(500).json({ message: "Failed to update status" });

@@ -6,8 +6,11 @@ import {
   updateParentStudentRelationship,
   deleteParentStudentRelationship,
   getChildHealthData,
+  getStudentParentStatus,
+  getOrgParentConsentOverview,
+  linkParent,
 } from "../controllers/parentStudentRelationship.controller.js";
-import { authenticate } from "../middleware/auth.middleware.js";
+import { authenticate, authorizeRole } from "../middleware/auth.middleware.js";
 import prisma from "../services/prisma.service.js";
 import type { Response, NextFunction } from "express";
 import type { AuthRequest } from "../types/models.js";
@@ -32,6 +35,10 @@ const requireSchoolOrg = async (req: AuthRequest, res: Response, next: NextFunct
 };
 
 router.use(authenticate, requireSchoolOrg);
+
+router.post(  "/link",                            authorizeRole("ORG_ADMIN"), linkParent);
+router.get(   "/student/:studentId",              authorizeRole("ORG_ADMIN"), getStudentParentStatus);
+router.get(   "/org-overview",                    authorizeRole("ORG_ADMIN"), getOrgParentConsentOverview);
 
 router.post(  "/",                                createParentStudentRelationship);
 router.get(   "/",                                getAllParentStudentRelationships);

@@ -78,23 +78,25 @@ export async function getSuperAdminReports(req: AuthRequest, res: Response) {
       }),
 
       // High-risk students (distinct users above stress threshold)
-      prisma.biometricLog.count({
-        distinct: ["userId"],
-        where: {
-          createdAt: { gte: startDate },
-          stressLevelScore: {
-            gte: Number(process.env.HIGH_RISK_STRESS_THRESHOLD ?? 0.8),
+      prisma.biometricLog
+        .groupBy({
+          by: ["userId"],
+          where: {
+            createdAt: { gte: startDate },
+            stressLevelScore: {
+              gte: Number(process.env.HIGH_RISK_STRESS_THRESHOLD ?? 0.8),
+            },
           },
-        },
-      }),
+        })
+        .then((rows) => rows.length),
 
       // Wearables linked = students with any biometric data
-      prisma.biometricLog.count({
-        distinct: ["userId"],
-        where: {
-          createdAt: { gte: startDate },
-        },
-      }),
+      prisma.biometricLog
+        .groupBy({
+          by: ["userId"],
+          where: { createdAt: { gte: startDate } },
+        })
+        .then((rows) => rows.length),
     ]);
 
     return res.json({

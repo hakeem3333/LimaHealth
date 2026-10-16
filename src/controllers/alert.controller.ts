@@ -2,9 +2,16 @@ import type { Response } from "express";
 import prisma from "../services/prisma.service";
 import type { AuthRequest } from "../middleware/auth.middleware";
 import { sendPushNotification } from "../services/pushNotification.service";
+import { sendEmail } from "../services/email.service";
 import { z } from "zod";
 
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MODERATE: 2 };
+
+const panicSchema = z.object({
+  message: z.string().max(500).optional(),
+});
+
+const PANIC_COOLDOWN_MINUTES = 2;
 
 const alertSchema = z.object({
   studentId: z.string().uuid("Invalid student ID"),
@@ -111,6 +118,103 @@ export const createAlert = async (req: AuthRequest, res: Response) => {
     );
   } catch (error) {
     console.error("Error creating alert:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// POST /alerts/panic — the panic button. A student/member signals they need
+// immediate help; routed to their assigned counselor, falling back to any
+// active counselor in their organisation if none is assigned. Repeated taps
+// within the cooldown window return the existing alert instead of spamming
+// new notifications.
+export const triggerPanicAlert = async (req: AuthRequest, res: Response) => {
+  const studentId = req.user!.id;
+
+  try {
+    const parsed = panicSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Validation error",
+        errors: parsed.error.flatten().fieldErrors,
+      });
+    }
+
+    const student = await prisma.user.findUnique({
+      where: { id: studentId },
+      select: { firstName: true, lastName: true, orgId: true, assignedCounselorId: true },
+    });
+    if (!student) return res.status(404).json({ message: "User not found" });
+
+    let counselorId = student.assignedCounselorId;
+    if (!counselorId && student.orgId) {
+      const fallback = await prisma.user.findFirst({
+        where: { orgId: student.orgId, isActive: true, role: { name: "COUNSELOR" } },
+        select: { id: true },
+      });
+      counselorId = fallback?.id ?? null;
+    }
+
+    if (!counselorId) {
+      return res.status(422).json({
+        message:
+          "No counselor is available to notify right now. If this is an emergency, please contact local emergency services.",
+      });
+    }
+
+    // Repeated taps (double-press, retry) reuse the same unresolved alert
+    // instead of firing duplicate pushes/emails at the counselor.
+    const since = new Date(Date.now() - PANIC_COOLDOWN_MINUTES * 60 * 1000);
+    const recent = await prisma.alert.findFirst({
+      where: { studentId, alertType: "PANIC_BUTTON", isResolved: false, createdAt: { gte: since } },
+      include: includeParties,
+    });
+    if (recent) {
+      res.status(200).json(recent);
+      return;
+    }
+
+    const studentName = `${student.firstName} ${student.lastName}`.trim();
+    const note = parsed.data.message?.trim();
+    const message = note
+      ? `${studentName} pressed the panic button: "${note}"`
+      : `${studentName} pressed the panic button and needs immediate support.`;
+
+    const newAlert = await prisma.alert.create({
+      data: {
+        studentId,
+        counselorId,
+        alertType: "PANIC_BUTTON",
+        severity: "CRITICAL",
+        message,
+      },
+      include: includeParties,
+    });
+
+    res.status(201).json(newAlert);
+
+    void sendPushNotification(
+      counselorId,
+      "🚨 Panic Button Alert",
+      message,
+      { type: "alert", alertId: newAlert.id, severity: "CRITICAL", alertType: "PANIC_BUTTON" },
+    );
+
+    void sendEmail({
+      to: newAlert.counselor.email,
+      subject: `[LimaHealth URGENT] ${studentName} pressed the panic button`,
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.6;color:#333">
+          <h2 style="color:#DC2626">🚨 Panic Button Pressed</h2>
+          <p>${message}</p>
+          <p>Please reach out to ${studentName} immediately.</p>
+          <p style="color:#6B7280;font-size:12px">— LimaHealth Automated Monitoring</p>
+        </div>
+      `,
+    }).catch((err: any) => {
+      console.error("[Panic Alert] Email failed:", err.message);
+    });
+  } catch (error) {
+    console.error("Error triggering panic alert:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

@@ -2,6 +2,9 @@ import type { Response } from "express";
 import type { AuthRequest } from "../../types/models";
 import prisma from "../../services/prisma.service";
 
+// A linked device with no reading in this window is flagged as not syncing.
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
 export async function getOrgWearables(req: AuthRequest, res: Response) {
   if (!req.user?.orgId) {
     return res.status(403).json({ message: "Organisation context required" });
@@ -11,7 +14,6 @@ export async function getOrgWearables(req: AuthRequest, res: Response) {
     status?: "connected" | "not_connected";
   };
 
-  // Fetch students only (users with biometric potential)
   const students = await prisma.user.findMany({
     where: {
       orgId: req.user.orgId,
@@ -21,6 +23,7 @@ export async function getOrgWearables(req: AuthRequest, res: Response) {
       id: true,
       firstName: true,
       lastName: true,
+      fitbitCredential: { select: { createdAt: true } },
       biometricLogs: {
         orderBy: { timestamp: "desc" },
         take: 1,
@@ -31,17 +34,23 @@ export async function getOrgWearables(req: AuthRequest, res: Response) {
 
   let result = students.map((s) => {
     const lastLog = s.biometricLogs[0];
+    // "Linked" means the student actually authorised a device (a stored
+    // credential) — not merely that a reading exists, and never inferred
+    // for someone who has not connected anything.
+    const linked = Boolean(s.fitbitCredential);
+    const fresh = lastLog && Date.now() - lastLog.timestamp.getTime() < STALE_AFTER_MS;
 
     return {
       studentId: s.id,
       studentName: `${s.firstName} ${s.lastName}`,
-      device: lastLog ? "Fitbit" : null, // placeholder
-      connected: Boolean(lastLog),
+      device: linked ? "Fitbit" : null,
+      connected: linked,
+      linkStatus: !linked ? "not_linked" : fresh ? "live" : "stale",
+      linkedAt: s.fitbitCredential?.createdAt ?? null,
       lastSync: lastLog?.timestamp ?? null,
     };
   });
 
-  // Apply filter
   if (status === "connected") {
     result = result.filter((r) => r.connected);
   }

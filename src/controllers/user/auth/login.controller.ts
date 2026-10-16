@@ -30,18 +30,33 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // Passwordless accounts (e.g. PARENT) have no passwordHash to compare against —
+    // they sign in via /auth/parent/login instead.
+    if (!user.passwordHash) {
+      return res.status(400).json({
+        message: "This account uses passwordless sign-in. Request a sign-in code instead.",
+      });
+    }
+
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const allowedRoles = ["COUNSELOR", "STUDENT", "PARENT"];
+    const allowedRoles = ["COUNSELOR", "STUDENT"];
     const userRole = user.role?.name ?? "";
 
     if (!allowedRoles.includes(userRole)) {
       return res
         .status(403)
         .json({ message: "Access denied for this account type" });
+    }
+
+    // Deactivated by their organisation's admin
+    if (!user.isActive) {
+      return res.status(403).json({
+        message: "Your account has been deactivated. Please contact your organisation's admin.",
+      });
     }
 
     const accessToken = signAccessToken({
@@ -88,8 +103,11 @@ export const login = async (req: Request, res: Response) => {
         id: user.id,
         email: user.email,
         firstName: user.firstName,
+        lastName: user.lastName,
         role: userRole,
-        mustChangePassword: user.mustChangePassword,
+        // Forced first-login password change is a mobile-app rule only.
+        mustChangePassword: isMobile && user.mustChangePassword,
+        profileImage: user.profileImage,
       },
     };
 

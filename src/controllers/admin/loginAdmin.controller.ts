@@ -3,8 +3,8 @@ import bcrypt from "bcryptjs";
 // import crypto from "crypto";
 import { generateOTP } from "../../utils/otp.util";
 import prisma from "../../services/prisma.service";
-import { sendEmail } from "../../services/email.service";
-import { signTempToken } from "../../utils/jwt.util"; // Using the helper we created
+import { sendAdminLoginOtpEmail } from "../../services/otpEmail.service";
+import { signTempToken, verifyToken } from "../../utils/jwt.util";
 import { z } from "zod";
 
 // =======================
@@ -18,6 +18,100 @@ const adminLoginSchema = z.object({
     .string({ required_error: "Password is required" })
     .min(8, "Password must be at least 8 characters long"),
 });
+
+// The code itself is short-lived; the "password already verified" session that
+// lets the admin ask for a fresh one is longer, so resend works right after expiry.
+const OTP_TTL_MS = 10 * 60 * 1000;
+const RESEND_COOLDOWN_MS = 30 * 1000;
+const TEMP_SESSION_MS = 30 * 60 * 1000;
+const ALLOWED_ORG_STATUSES = ["ACTIVE", "PAYMENT_REQUIRED", "EXPIRED"];
+
+const issueAdminOtp = async (user: {
+  id: string;
+  email: string;
+  firstName: string;
+  org?: { orgType?: string | null; name?: string | null } | null;
+}) => {
+  const code = generateOTP();
+  const codeHash = await bcrypt.hash(code, 10);
+  const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+
+  await prisma.adminOtp.upsert({
+    where: { userId: user.id },
+    update: { codeHash, expiresAt, attempts: 0 },
+    create: { userId: user.id, codeHash, expiresAt },
+  });
+
+  await sendAdminLoginOtpEmail({
+    to: user.email,
+    name: user.firstName,
+    code,
+    orgType: user.org?.orgType,
+    orgName: user.org?.name,
+  });
+};
+
+const setAdminTempCookie = (res: Response, userId: string) => {
+  res.cookie("admin_temp_token", signTempToken({ userId }, "ADMIN_OTP", "30m"), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: TEMP_SESSION_MS,
+  });
+};
+
+// =======================
+// 🔁 Admin Resend OTP
+// =======================
+// Uses the temp session from step 1 as proof the password was already verified.
+// Expired-session errors are 403 (not 401) so the web client's 401 handler
+// doesn't try to refresh a session that never existed.
+export const adminResendOtp = async (req: Request, res: Response) => {
+  const sessionExpired = () =>
+    res.status(403).json({
+      message: "Your sign-in session has expired. Please sign in again.",
+      code: "SESSION_EXPIRED",
+    });
+
+  try {
+    const tempToken = req.cookies?.admin_temp_token;
+    if (!tempToken) return sessionExpired();
+
+    const { decoded, valid } = verifyToken(tempToken);
+    if (!valid || !decoded || (decoded as any).purpose !== "ADMIN_OTP") {
+      return sessionExpired();
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: (decoded as any).userId },
+      include: { role: true, org: true },
+    });
+    if (!user || user.role?.name !== "ORG_ADMIN" || !user.isActive) return sessionExpired();
+
+    if (user.org && !ALLOWED_ORG_STATUSES.includes(user.org.status)) {
+      return res.status(403).json({ message: "This account can't sign in right now." });
+    }
+
+    const existing = await prisma.adminOtp.findUnique({ where: { userId: user.id } });
+    if (existing) {
+      const issuedAt = existing.expiresAt.getTime() - OTP_TTL_MS;
+      const waitMs = issuedAt + RESEND_COOLDOWN_MS - Date.now();
+      if (waitMs > 0) {
+        return res.status(429).json({
+          message: `Please wait ${Math.ceil(waitMs / 1000)}s before requesting another code.`,
+        });
+      }
+    }
+
+    await issueAdminOtp(user);
+    setAdminTempCookie(res, user.id);
+
+    return res.status(200).json({ message: "A new verification code has been sent to your email." });
+  } catch (err) {
+    console.error("Error in admin resend OTP:", err);
+    return res.status(500).json({ message: "Couldn't send a new code. Please try again." });
+  }
+};
 
 // =======================
 // 🔐 Admin Login Step 1
@@ -61,6 +155,13 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Invalid email or password." });
     }
 
+    // Deactivated by a Super Admin
+    if (!user.isActive) {
+      return res.status(403).json({
+        message: "This admin account has been deactivated. Please contact support.",
+      });
+    }
+
     // 3. Org status check
     if (user.org) {
       const status = user.org.status;
@@ -92,39 +193,9 @@ export const adminLoginStep1 = async (req: Request, res: Response) => {
       }
     }
 
-    // 4. Prepare OTP
-    const code = generateOTP();
-    const otpHash = await bcrypt.hash(code, 10);
-
-    await prisma.adminOtp.upsert({
-      where: { userId: user.id },
-      update: {
-        codeHash: otpHash,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-        attempts: 0,
-      },
-      create: {
-        userId: user.id,
-        codeHash: otpHash,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      },
-    });
-
-    // 5. Send OTP email
-    await sendEmail({
-      to: user.email,
-      subject: "Your admin login code",
-      text: `Your OTP is ${code}. It expires in 10 minutes.`,
-    });
-
-    const tempToken = signTempToken({ userId: user.id });
-
-    res.cookie("admin_temp_token", tempToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 10 * 60 * 1000,
-    });
+    // 4. Issue + email the OTP, and start the 2FA session
+    await issueAdminOtp(user);
+    setAdminTempCookie(res, user.id);
 
     return res.status(200).json({
       message: "A verification code has been sent to your email.",
@@ -152,7 +223,10 @@ export const getOrgTypeByEmail = async (req: Request, res: Response) => {
       include: { role: true, org: true },
     });
 
-    if (!user || user.role?.name !== "ORG_ADMIN" || !user.org) {
+    // Used by both the admin web login and the mobile app login for org-type
+    // theming, so any account with an org (not just ORG_ADMIN) resolves.
+    const THEMEABLE_ROLES = ["ORG_ADMIN", "STUDENT", "COUNSELOR", "PARENT"];
+    if (!user || !THEMEABLE_ROLES.includes(user.role?.name) || !user.org) {
       return res.status(200).json({ orgType: null });
     }
 

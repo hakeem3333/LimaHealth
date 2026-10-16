@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticate, authorizeRole } from "../../middleware/auth.middleware";
-import { getOrgMembers, createOrgMember } from "../../controllers/org-admin/members.controller";
+import { getOrgMembers, createOrgMember, updateOrgMember } from "../../controllers/org-admin/members.controller";
 import { getMemberProfile } from "../../controllers/org-admin/member-profile.controller";
 
 const router = Router();
@@ -24,6 +24,13 @@ router.get(
   authenticate,
   authorizeRole("ORG_ADMIN"),
   getMemberProfile
+);
+
+router.patch(
+  "/members/:studentId",
+  authenticate,
+  authorizeRole("ORG_ADMIN"),
+  updateOrgMember
 );
 
 export default router;

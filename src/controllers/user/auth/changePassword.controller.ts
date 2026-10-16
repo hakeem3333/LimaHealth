@@ -42,6 +42,12 @@ export async function changePassword(req: AuthRequest, res: Response) {
       return res.status(404).json({ message: "User not found" });
     }
 
+    if (!user.passwordHash) {
+      return res.status(400).json({
+        message: "This account is passwordless and has no password to change.",
+      });
+    }
+
     const passwordValid = await bcrypt.compare(
       currentPassword,
       user.passwordHash,
@@ -50,6 +56,12 @@ export async function changePassword(req: AuthRequest, res: Response) {
     if (!passwordValid) {
       return res.status(400).json({
         message: "Current password is incorrect",
+      });
+    }
+
+    if (newPassword === currentPassword) {
+      return res.status(400).json({
+        message: "New password must be different from your current password",
       });
     }
 

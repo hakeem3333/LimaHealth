@@ -1,0 +1,12 @@
+model ParentConsentToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  studentId String
+  parentId  String
+  decision  String?   // "GRANTED" | "DECLINED", set when the parent responds
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  student   User      @relation("ParentConsentStudent", fields: [studentId], references: [id])
+  parent    User      @relation("ParentConsentParent", fields: [parentId], references: [id])
+}

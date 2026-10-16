@@ -3,6 +3,7 @@ import type { Response } from "express";
 import { z } from "zod";
 import prisma from "../../services/prisma.service";
 import type { AuthRequest } from "../../types/models.js";
+import { DEFAULT_HEART_RATE_THRESHOLD, DEFAULT_SLEEP_TARGET } from "../../utils/orgThresholds.util.js";
 
 const updateOrgSettingsSchema = z.object({
   name: z.string().min(1).optional(),
@@ -10,8 +11,9 @@ const updateOrgSettingsSchema = z.object({
   address: z.string().optional(),
   contactEmail: z.string().email().optional(),
 
-  heartRateThreshold: z.number().int().positive().optional(),
-  sleepHoursThreshold: z.number().int().positive().optional(),
+  // HIGH heart-rate alert at this bpm; CRITICAL at +20 (see orgThresholds.util.ts)
+  heartRateThreshold: z.number().int().min(60).max(200).optional(),
+  sleepHoursThreshold: z.number().min(4).max(12).optional(),
 
   emailAlerts: z.boolean().optional(),
   pushAlerts: z.boolean().optional(),
@@ -95,6 +97,10 @@ export async function getOrgSettings(req: AuthRequest, res: Response) {
 
   return res.json({
     name: org.name,
-    settings: (org.activationData as any)?.settings ?? {},
+    settings: {
+      heartRateThreshold: DEFAULT_HEART_RATE_THRESHOLD,
+      sleepHoursThreshold: DEFAULT_SLEEP_TARGET,
+      ...((org.activationData as any)?.settings ?? {}),
+    },
   });
 }

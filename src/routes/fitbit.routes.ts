@@ -1,6 +1,6 @@
 import { Router } from "express";
 import {
-  authorizeFitbit,
+  getFitbitAuthUrl,
   handleFitbitCallback,
   syncFitbitData,
   getFitbitStatus,
@@ -11,16 +11,15 @@ import { authenticate } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-// OAuth flow — no auth required (user is not yet logged in via Fitbit)
-router.get("/auth",     authorizeFitbit);
+// OAuth flow — the app fetches a consent URL (carrying a signed, single-use
+// state), and Fitbit calls /callback, which trusts only that state.
+router.get("/auth-url", authenticate, getFitbitAuthUrl);
 router.get("/callback", handleFitbitCallback);
 
-// Status check — public so the home screen can check before token is refreshed
-router.get("/status/:userId", getFitbitStatus);
-router.get("/data/:userId",   getFitbitData);
-
-// Protected — require JWT
-router.post("/sync",       authenticate, syncFitbitData);
-router.delete("/disconnect", authenticate, disconnectFitbit);
+// Protected — require JWT; users can only access their own data
+router.get("/status/:userId", authenticate, getFitbitStatus);
+router.get("/data/:userId",   authenticate, getFitbitData);
+router.post("/sync",          authenticate, syncFitbitData);
+router.delete("/disconnect",  authenticate, disconnectFitbit);
 
 export default router;

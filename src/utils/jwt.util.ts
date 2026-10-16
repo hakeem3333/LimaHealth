@@ -29,17 +29,28 @@ export const signAccessToken = (payload: {
   });
 };
 
-// 2. Refresh Token: Standard 7 days
-export const signRefreshToken = (payload: { sub: string }) => {
-  return jwt.sign({ ...payload, type: "REFRESH" }, JWT_SECRET, {
-    expiresIn: "7d",
-  });
+// 2. Refresh Token: Standard 7 days (callers may shorten it, e.g. Super Admin).
+// The random jti guarantees two tokens for the same user signed in the same
+// second never come out byte-identical (tokenHash is unique in the DB).
+export const signRefreshToken = (
+  payload: { sub: string },
+  expiresIn: jwt.SignOptions["expiresIn"] = "7d",
+) => {
+  return jwt.sign(
+    { ...payload, type: "REFRESH", jti: crypto.randomUUID() },
+    JWT_SECRET,
+    { expiresIn },
+  );
 };
 
 // 3. Temp Token
-export const signTempToken = (payload: { userId: string; role?: string }) => {
-  return jwt.sign({ ...payload, purpose: "ADMIN_OTP" }, JWT_SECRET, {
-    expiresIn: "10m",
+export const signTempToken = (
+  payload: { userId?: string; email?: string; role?: string },
+  purpose: string = "ADMIN_OTP",
+  expiresIn: jwt.SignOptions["expiresIn"] = "10m",
+) => {
+  return jwt.sign({ ...payload, purpose }, JWT_SECRET, {
+    expiresIn,
   });
 };
 

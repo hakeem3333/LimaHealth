@@ -11,13 +11,13 @@ export type OrgType = "SCHOOL" | "COMPANY" | "HOSPITAL" | "NGO";
  *
  * SCHOOL   → Student
  * COMPANY  → Employee
- * HOSPITAL → Staff
+ * HOSPITAL → Patient
  * NGO      → Member
  */
 export function getMemberLabel(orgType: OrgType | string): string {
   switch (orgType) {
     case "COMPANY":  return "Employee";
-    case "HOSPITAL": return "Staff";
+    case "HOSPITAL": return "Patient";
     case "NGO":      return "Member";
     case "SCHOOL":
     default:         return "Student";
@@ -29,13 +29,13 @@ export function getMemberLabel(orgType: OrgType | string): string {
  *
  * SCHOOL   → Counselor
  * COMPANY  → Wellness Coach
- * HOSPITAL → Therapist
+ * HOSPITAL → Doctor
  * NGO      → Support Worker
  */
 export function getCounselorLabel(orgType: OrgType | string): string {
   switch (orgType) {
     case "COMPANY":  return "Wellness Coach";
-    case "HOSPITAL": return "Therapist";
+    case "HOSPITAL": return "Doctor";
     case "NGO":      return "Support Worker";
     case "SCHOOL":
     default:         return "Counselor";

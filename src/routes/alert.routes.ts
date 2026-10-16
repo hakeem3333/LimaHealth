@@ -6,6 +6,7 @@ import {
   resolveAlert,
   updateAlert,
   deleteAlert,
+  triggerPanicAlert,
 } from "../controllers/alert.controller";
 import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 
@@ -14,6 +15,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/", authorizeRole("COUNSELOR", "STUDENT"), getAllAlerts);
+router.post("/panic", authorizeRole("STUDENT"), triggerPanicAlert);
 router.get("/:id", authorizeRole("COUNSELOR", "STUDENT"), getAlertById);
 router.post("/", authorizeRole("COUNSELOR"), createAlert);
 router.patch("/:id/resolve", authorizeRole("COUNSELOR", "STUDENT"), resolveAlert);

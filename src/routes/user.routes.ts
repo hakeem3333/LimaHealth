@@ -6,6 +6,10 @@ import {
   updateUser,
   deleteUser,
   registerPushToken,
+  uploadProfileImage,
+  updateProfileImage,
+  deleteProfileImage,
+  getMyCounselor,
 } from "../controllers/user.controller";
 import { authenticate, authorizeRole } from "../middleware/auth.middleware";
 
@@ -81,6 +85,49 @@ router.get("/", authenticate, getAllUsers);
  * description: Invalid input.
  */
 router.patch("/me/push-token", authenticate, registerPushToken);
+
+/**
+ * @swagger
+ * /users/me/counselor:
+ *   get:
+ *     summary: Returns the caller's own assigned counselor, if any.
+ *     tags: [Users]
+ *     responses:
+ *       200:
+ *         description: The assigned counselor (or null).
+ */
+router.get("/me/counselor", authenticate, getMyCounselor);
+
+/**
+ * @swagger
+ * /users/me/profile-image:
+ *   patch:
+ *     summary: Uploads (or replaces) the caller's own profile image.
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Profile image updated.
+ *       400:
+ *         description: No image uploaded / invalid file.
+ *   delete:
+ *     summary: Removes the caller's own profile image.
+ *     tags: [Users]
+ *     responses:
+ *       200:
+ *         description: Profile image removed.
+ */
+router.patch("/me/profile-image", authenticate, uploadProfileImage, updateProfileImage);
+router.delete("/me/profile-image", authenticate, deleteProfileImage);
 
 /**
  * @swagger

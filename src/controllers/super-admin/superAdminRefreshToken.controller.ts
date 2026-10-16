@@ -7,6 +7,11 @@ import {
   verifyToken,
   REFRESH_GRACE_WINDOW_MS,
 } from "../../utils/jwt.util";
+import {
+  SUPER_REFRESH_JWT_EXPIRES_IN,
+  setSuperSessionCookies,
+  clearSuperSessionCookies,
+} from "../../utils/superAdminSession.util";
 
 export const superAdminRefreshToken = async (req: Request, res: Response) => {
   try {
@@ -14,6 +19,9 @@ export const superAdminRefreshToken = async (req: Request, res: Response) => {
     const oldRefreshToken = req.cookies?.super_refresh_token;
 
     if (!oldRefreshToken) {
+      // Drop a stale super_session hint so the frontend middleware stops
+      // letting pages load for a session that no longer exists.
+      clearSuperSessionCookies(res);
       return res.status(401).json({ message: "Refresh token missing" });
     }
 
@@ -48,13 +56,10 @@ export const superAdminRefreshToken = async (req: Request, res: Response) => {
     // current or recently-superseded hash means it was rotated out long ago
     // (or never existed). Treat as theft: kill every session for this user.
     if (!storedToken) {
+      clearSuperSessionCookies(res);
       if (valid && decoded) {
         const userId = (decoded as any).sub;
         await prisma.refreshToken.deleteMany({ where: { userId } });
-        res.clearCookie("super_access_token");
-        res.clearCookie("super_refresh_token", {
-          path: "/api/v1/super-admin/refresh-token",
-        });
         return res.status(403).json({
           message: "Security alert: Session compromised. Please login again.",
         });
@@ -65,6 +70,7 @@ export const superAdminRefreshToken = async (req: Request, res: Response) => {
     // 5. Token exists in DB but is expired, revoked, or the JWT itself expired
     if (!valid || storedToken.revoked || storedToken.expiresAt < new Date()) {
       await prisma.refreshToken.delete({ where: { id: storedToken.id } });
+      clearSuperSessionCookies(res);
       return res
         .status(403)
         .json({ message: "Session expired. Please login again." });
@@ -72,11 +78,13 @@ export const superAdminRefreshToken = async (req: Request, res: Response) => {
 
     // 6. Double check the user is actually a Super Admin
     if (storedToken.user.role.name !== "SUPER_ADMIN") {
+      clearSuperSessionCookies(res);
       return res.status(403).json({ message: "Unauthorized role" });
     }
 
     const userId = storedToken.userId;
-    const isProd = process.env.NODE_ENV === "production";
+    // Cookies live only as long as the session's absolute expiry (1 day from login).
+    const sessionMs = storedToken.expiresAt.getTime() - Date.now();
 
     // Grace-window hit: reissue only a fresh access token. We don't have the
     // plaintext of the *current* refresh token (only its hash) to hand back,
@@ -84,14 +92,7 @@ export const superAdminRefreshToken = async (req: Request, res: Response) => {
     // out — so leave the refresh token alone entirely.
     if (isGraceHit) {
       const newAccessToken = signAccessToken({ sub: userId, role: "SUPER_ADMIN" });
-
-      res.cookie("super_access_token", newAccessToken, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: "strict",
-        maxAge: 15 * 60 * 1000,
-      });
-
+      setSuperSessionCookies(res, { accessToken: newAccessToken }, sessionMs);
       return res.status(200).json({ message: "Access token refreshed" });
     }
 
@@ -99,7 +100,7 @@ export const superAdminRefreshToken = async (req: Request, res: Response) => {
     // grace window before overwriting it. Keeps the original session's
     // absolute expiresAt so rotation doesn't extend the session indefinitely.
     const newAccessToken = signAccessToken({ sub: userId, role: "SUPER_ADMIN" });
-    const newRefreshToken = signRefreshToken({ sub: userId });
+    const newRefreshToken = signRefreshToken({ sub: userId }, SUPER_REFRESH_JWT_EXPIRES_IN);
 
     await prisma.refreshToken.update({
       where: { id: storedToken.id },
@@ -110,20 +111,11 @@ export const superAdminRefreshToken = async (req: Request, res: Response) => {
       },
     });
 
-    res.cookie("super_access_token", newAccessToken, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000, // 15 mins
-    });
-
-    res.cookie("super_refresh_token", newRefreshToken, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: "strict",
-      path: "/api/v1/super-admin/refresh-token",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    setSuperSessionCookies(
+      res,
+      { accessToken: newAccessToken, refreshToken: newRefreshToken },
+      sessionMs,
+    );
 
     return res.status(200).json({ message: "Token refreshed successfully" });
   } catch (err) {

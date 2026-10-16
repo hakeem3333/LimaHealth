@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import routes from "./routes/index.js";
 import prisma from "./services/prisma.service.js";
 import { stripeWebhook } from "./controllers/billing.controller.js";
+import { startFitbitSyncScheduler } from "./services/fitbit.service.js";
 
 dotenv.config();
 
@@ -46,7 +47,11 @@ const app: Application = express();
     );
 
     app.use(express.json());
+    app.use(express.urlencoded({ extended: true })); // parses the parental-consent page's HTML form submissions
     app.use(cookieParser());
+
+    // Publicly-served uploaded assets (e.g. profile images)
+    app.use("/uploads", express.static("uploads"));
 
     // Health check
     app.get("/health", (_req: Request, res: Response) => {
@@ -69,6 +74,7 @@ const app: Application = express();
 
     app.listen(PORT, () => {
       console.log(`Server is running on http://localhost:${PORT}`);
+      startFitbitSyncScheduler();
     });
   } catch (err) {
     console.error("Failed to start server:", err);

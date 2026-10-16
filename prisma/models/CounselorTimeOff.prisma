@@ -1,0 +1,16 @@
+// Whole days a counselor is away (holiday, sick day, conference). Overrides
+// their weekly hours: nothing can be booked or scheduled on these dates.
+// Existing sessions in the range are left alone — the counselor is warned
+// and cancels or reschedules them.
+model CounselorTimeOff {
+  id          String   @id @default(uuid())
+  counselorId String
+  startDate   String   // "yyyy-MM-dd", inclusive, a calendar date in `timezone`
+  endDate     String   // "yyyy-MM-dd", inclusive
+  timezone    String   // IANA zone the dates are meant in
+  note        String?
+  createdAt   DateTime @default(now())
+  counselor   User     @relation("CounselorTimeOff", fields: [counselorId], references: [id], onDelete: Cascade)
+
+  @@index([counselorId, endDate])
+}

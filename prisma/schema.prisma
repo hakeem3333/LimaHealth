@@ -16,11 +16,14 @@ model User {
   roleId              String?
   firstName           String
   lastName            String
+  dateOfBirth         DateTime?   // used to determine if a student requires parental consent
   email               String      @unique
-  passwordHash        String
+  passwordHash        String?     // null for passwordless accounts (e.g. PARENT — see ParentLoginOtp)
   isActive            Boolean     @default(true)
   isAvailable         Boolean     @default(true)  // for counselors: accepting new bookings
   mustChangePassword  Boolean     @default(false) // set on temp-password creation (bulk upload); cleared on first password change
+  pushToken           String?     // Expo push token for this device; overwritten on each login/registration
+  profileImage        String?     // relative URL path (e.g. /uploads/profile-images/xyz.jpg) to the user's avatar
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
   org               Organisation? @relation(fields: [orgId], references: [id])
@@ -36,17 +39,25 @@ model User {
   passwordResetTokens PasswordResetToken[]
   parentOf            ParentStudentRelationship[] @relation("ParentToStudent")
   studentOf           ParentStudentRelationship[] @relation("StudentToParent")
+  parentConsentTokensAsStudent ParentConsentToken[] @relation("ParentConsentStudent")
+  parentConsentTokensAsParent  ParentConsentToken[] @relation("ParentConsentParent")
   // Counselor caseload assignment (a student's assigned counselor, if any)
   assignedCounselorId String?
   assignedCounselor   User?       @relation("CounselorAssignments", fields: [assignedCounselorId], references: [id])
   assignedStudents    User[]      @relation("CounselorAssignments")
   counselorNotesAuthored     CounselorNote[] @relation("CounselorNotesAuthored")
   counselorNotesAboutMe      CounselorNote[] @relation("CounselorNotesAboutStudent")
+  counselorChangeRequestsAsStudent   CounselorChangeRequest[] @relation("CounselorChangeRequestsAsStudent")
+  counselorChangeRequestsAsCurrent  CounselorChangeRequest[] @relation("CounselorChangeRequestsAsCurrentCounselor")
+  counselorChangeRequestsAsNew      CounselorChangeRequest[] @relation("CounselorChangeRequestsAsNewCounselor")
+  counselorChangeRequestsResolved  CounselorChangeRequest[] @relation("CounselorChangeRequestsResolvedBy")
   weeklyAvailability  CounselorAvailability[] @relation("CounselorAvailability")
+  timeOff             CounselorTimeOff[]      @relation("CounselorTimeOff")
   messagesSent        Message[] @relation("MessagesSent")
   messagesReceived    Message[] @relation("MessagesReceived")
   consent             Consent?
   adminOtp            AdminOtp?
+  parentLoginOtp      ParentLoginOtp?
   refreshTokens       RefreshToken[]
   auditLogs           AuditLog[]
   bulkUploadLogs      BulkUploadLog[]
@@ -188,12 +199,35 @@ model CounselorAvailability {
   id          String   @id @default(uuid())
   counselorId String
   dayOfWeek   Int      // 0 = Sunday ... 6 = Saturday
-  startTime   String   // "HH:mm", 24-hour, local wall-clock time
+  startTime   String   // "HH:mm", 24-hour, wall-clock time in `timezone`
   endTime     String   // "HH:mm"
+  timezone    String   @default("UTC") // IANA zone the counselor set these hours in
   createdAt   DateTime @default(now())
   counselor   User     @relation("CounselorAvailability", fields: [counselorId], references: [id], onDelete: Cascade)
 
   @@index([counselorId])
+}
+
+
+model CounselorChangeRequest {
+  id                 String    @id @default(uuid())
+  studentId          String
+  currentCounselorId String?   // snapshot of who they were assigned to when they asked
+  reason             String
+  status             String    @default("PENDING") // PENDING | APPROVED | DENIED
+  newCounselorId     String?   // set once an APPROVED request has been actioned
+  adminNote          String?
+  resolvedById       String?
+  resolvedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  student            User      @relation("CounselorChangeRequestsAsStudent", fields: [studentId], references: [id])
+  currentCounselor   User?     @relation("CounselorChangeRequestsAsCurrentCounselor", fields: [currentCounselorId], references: [id])
+  newCounselor       User?     @relation("CounselorChangeRequestsAsNewCounselor", fields: [newCounselorId], references: [id])
+  resolvedBy         User?     @relation("CounselorChangeRequestsResolvedBy", fields: [resolvedById], references: [id])
+
+  @@index([studentId])
+  @@index([status])
 }
 
 
@@ -209,6 +243,24 @@ model CounselorNote {
   student     User     @relation("CounselorNotesAboutStudent", fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([counselorId, studentId])
+}
+
+
+// Whole days a counselor is away (holiday, sick day, conference). Overrides
+// their weekly hours: nothing can be booked or scheduled on these dates.
+// Existing sessions in the range are left alone — the counselor is warned
+// and cancels or reschedules them.
+model CounselorTimeOff {
+  id          String   @id @default(uuid())
+  counselorId String
+  startDate   String   // "yyyy-MM-dd", inclusive, a calendar date in `timezone`
+  endDate     String   // "yyyy-MM-dd", inclusive
+  timezone    String   // IANA zone the dates are meant in
+  note        String?
+  createdAt   DateTime @default(now())
+  counselor   User     @relation("CounselorTimeOff", fields: [counselorId], references: [id], onDelete: Cascade)
+
+  @@index([counselorId, endDate])
 }
 
 
@@ -294,6 +346,32 @@ model Organisation {
   activationData  Json?
   emailVerificationTokens EmailVerificationToken[]
   bulkUploadLogs  BulkUploadLog[]
+}
+
+
+model ParentConsentToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  studentId String
+  parentId  String
+  decision  String?   // "GRANTED" | "DECLINED", set when the parent responds
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  student   User      @relation("ParentConsentStudent", fields: [studentId], references: [id])
+  parent    User      @relation("ParentConsentParent", fields: [parentId], references: [id])
+}
+
+
+model ParentLoginOtp {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 

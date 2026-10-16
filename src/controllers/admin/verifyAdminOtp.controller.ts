@@ -7,6 +7,11 @@ import {
   signRefreshToken,
   hashToken,
 } from "../../utils/jwt.util";
+import {
+  ORG_ADMIN_REFRESH_JWT_EXPIRES_IN,
+  ORG_ADMIN_REFRESH_TTL_MS,
+  setOrgAdminSessionCookies,
+} from "../../utils/orgAdminSession.util";
 import { z } from "zod";
 
 const otpSchema = z.object({
@@ -55,6 +60,13 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
         .json({ message: "Invalid OTP session or user no longer exists" });
     }
 
+    if (!user.isActive) {
+      await prisma.adminOtp.delete({ where: { userId } });
+      return res
+        .status(403)
+        .json({ message: "This admin account has been deactivated. Please contact support." });
+    }
+
     if (record.expiresAt < new Date()) {
       await prisma.adminOtp.delete({ where: { userId } });
       return res.status(400).json({ message: "OTP expired" });
@@ -86,42 +98,21 @@ export const adminLoginStep2 = async (req: Request, res: Response) => {
       orgStatus: user.org?.status ?? undefined,
     });
 
-    const refreshToken = signRefreshToken({ sub: userId });
+    const refreshToken = signRefreshToken({ sub: userId }, ORG_ADMIN_REFRESH_JWT_EXPIRES_IN);
 
     await prisma.refreshToken.create({
       data: {
         userId,
         tokenHash: hashToken(refreshToken),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + ORG_ADMIN_REFRESH_TTL_MS),
       },
     });
 
-    const isProd = process.env.NODE_ENV === "production";
-
-    res.cookie("access_token", accessToken, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "strict" : "lax",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    if (user.org?.status) {
-      res.cookie("org_status", user.org.status, {
-        httpOnly: false, // readable by frontend middleware
-        secure: isProd,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-    }
-
-    res.cookie("refresh_token", refreshToken, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "strict" : "lax",
-      path: "/api/v1/auth",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    setOrgAdminSessionCookies(
+      res,
+      { accessToken, refreshToken, orgStatus: user.org?.status ?? undefined },
+      ORG_ADMIN_REFRESH_TTL_MS,
+    );
 
     return res.status(200).json({
       message: "Login successful",

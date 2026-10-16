@@ -6,8 +6,9 @@ model CounselorAvailability {
   id          String   @id @default(uuid())
   counselorId String
   dayOfWeek   Int      // 0 = Sunday ... 6 = Saturday
-  startTime   String   // "HH:mm", 24-hour, local wall-clock time
+  startTime   String   // "HH:mm", 24-hour, wall-clock time in `timezone`
   endTime     String   // "HH:mm"
+  timezone    String   @default("UTC") // IANA zone the counselor set these hours in
   createdAt   DateTime @default(now())
   counselor   User     @relation("CounselorAvailability", fields: [counselorId], references: [id], onDelete: Cascade)
 

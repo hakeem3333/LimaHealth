@@ -5,3 +5,6 @@
 .env
 
 /generated/prisma
+
+# User-uploaded files (profile images, bulk-upload CSVs)
+/uploads

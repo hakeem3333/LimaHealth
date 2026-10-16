@@ -1,6 +1,8 @@
 import type { Response } from "express";
 import prisma from "../../services/prisma.service";
 import type { AuthRequest } from "../../middleware/auth.middleware";
+import { calculateAge, formatDateOfBirth, isMinor } from "../../utils/age.util";
+import { riskFromSeverities } from "../../utils/risk.util";
 
 export const getMemberProfile = async (req: AuthRequest, res: Response) => {
   const orgId = req.user?.orgId;
@@ -23,6 +25,10 @@ export const getMemberProfile = async (req: AuthRequest, res: Response) => {
         lastName: true,
         email: true,
         isActive: true,
+        dateOfBirth: true,
+        assignedCounselor: {
+          select: { id: true, firstName: true, lastName: true },
+        },
       },
     });
 
@@ -87,31 +93,26 @@ export const getMemberProfile = async (req: AuthRequest, res: Response) => {
         : null;
 
     // Risk level
-    let riskLevel: "LOW" | "MEDIUM" | "HIGH" = "LOW";
+    const riskLevel = riskFromSeverities(alerts.filter((a) => !a.isResolved).map((a) => a.severity));
 
-    const unresolvedAlert = alerts.find((a) => !a.isResolved);
-
-    if (unresolvedAlert) {
-      if (["CRITICAL", "HIGH"].includes(unresolvedAlert.alertType)) {
-        riskLevel = "HIGH";
-      } else if (unresolvedAlert.alertType === "MEDIUM") {
-        riskLevel = "MEDIUM";
-      }
-    }
-
-    // Assigned counselor (last alert)
-    const lastCounselor = alerts[0]?.counselor
+    // Assigned counselor (real caseload assignment, not a guess from alert history)
+    const assignedCounselor = student.assignedCounselor
       ? {
-          id: alerts[0].counselor.id,
-          name: `${alerts[0].counselor.firstName} ${alerts[0].counselor.lastName}`,
+          id: student.assignedCounselor.id,
+          name: `${student.assignedCounselor.firstName} ${student.assignedCounselor.lastName}`,
         }
       : null;
 
     return res.json({
       id: student.id,
+      firstName: student.firstName,
+      lastName: student.lastName,
       name: `${student.firstName} ${student.lastName}`,
       email: student.email,
       isActive: student.isActive,
+      dateOfBirth: formatDateOfBirth(student.dateOfBirth),
+      age: calculateAge(student.dateOfBirth),
+      isMinor: isMinor(student.dateOfBirth),
       riskLevel,
 
       wearable: {
@@ -119,7 +120,7 @@ export const getMemberProfile = async (req: AuthRequest, res: Response) => {
         lastSync: latestBiometric?.timestamp ?? null,
       },
 
-      counselor: lastCounselor,
+      counselor: assignedCounselor,
 
       metrics: {
         avgStress7d,

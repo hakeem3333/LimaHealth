@@ -35,10 +35,11 @@ export const forgotPassword = async (req: Request, res: Response) => {
   try {
     const user = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, firstName: true },
+      select: { id: true, firstName: true, passwordHash: true },
     });
 
     if (!user) return SAFE_RESPONSE; // silently no-op
+    if (!user.passwordHash) return SAFE_RESPONSE; // passwordless account (e.g. PARENT) — nothing to reset
 
     // Invalidate any existing unused tokens for this user
     await prisma.passwordResetToken.deleteMany({
@@ -126,7 +127,8 @@ export const resetPassword = async (req: Request, res: Response) => {
     await prisma.$transaction([
       prisma.user.update({
         where: { id: record.userId },
-        data: { passwordHash },
+        // They've chosen their own password, so the temporary one no longer needs replacing.
+        data: { passwordHash, mustChangePassword: false },
       }),
       prisma.passwordResetToken.update({
         where: { tokenHash },

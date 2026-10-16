@@ -51,6 +51,7 @@ export const authenticate = async (
         id: true,
         email: true,
         orgId: true,
+        mustChangePassword: true,
         org: {
           select: { status: true },
         },
@@ -67,6 +68,20 @@ export const authenticate = async (
 
     if (!user || !user.role) {
       return res.status(401).json({ message: "User account no longer exists" });
+    }
+
+    // Accounts created with a temporary password must set their own before doing
+    // anything else. This is a mobile-app rule only: web clients are never forced.
+    const isMobileClient = req.headers["x-client"] === "mobile";
+    const isChangePasswordCall =
+      req.method === "POST" &&
+      req.originalUrl.split("?")[0]?.endsWith("/auth/change-password");
+
+    if (isMobileClient && user.mustChangePassword && !isChangePasswordCall) {
+      return res.status(403).json({
+        message: "Please change your temporary password before continuing.",
+        code: "PASSWORD_CHANGE_REQUIRED",
+      });
     }
 
     if (user.orgId && user.org) {

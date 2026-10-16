@@ -14,7 +14,7 @@ type RoleTier = "STUDENT" | "COUNSELOR";
 const ORG_ROLE_LABELS: Record<string, { member: string; support: string }> = {
   SCHOOL:   { member: "STUDENT",  support: "COUNSELOR" },
   COMPANY:  { member: "EMPLOYEE", support: "WELLNESS COACH" },
-  HOSPITAL: { member: "STAFF",    support: "THERAPIST" },
+  HOSPITAL: { member: "PATIENT",  support: "DOCTOR" },
   NGO:      { member: "MEMBER",   support: "SUPPORT WORKER" },
 };
 
@@ -22,12 +22,16 @@ const DEFAULT_LABELS = ORG_ROLE_LABELS.SCHOOL;
 
 // Extra recognized synonyms beyond the primary label, keyed by tier.
 const SYNONYMS: Record<RoleTier, string[]> = {
-  STUDENT: ["STUDENT", "STUDENTS", "EMPLOYEE", "EMPLOYEES", "STAFF", "MEMBER", "MEMBERS"],
+  STUDENT: [
+    "STUDENT", "STUDENTS", "EMPLOYEE", "EMPLOYEES", "STAFF",
+    "MEMBER", "MEMBERS", "PATIENT", "PATIENTS",
+  ],
   COUNSELOR: [
     "COUNSELOR", "COUNSELORS", "COUNSELLOR", "COUNSELLORS",
     "WELLNESS COACH", "WELLNESS COACHES", "COACH", "COACHES",
     "THERAPIST", "THERAPISTS",
     "SUPPORT WORKER", "SUPPORT WORKERS",
+    "DOCTOR", "DOCTORS", "PHYSICIAN", "PHYSICIANS",
   ],
 };
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 import prisma from "../../services/prisma.service.js";
 import { sendVerificationEmail } from "../../services/email.service.js";
 import { hashToken } from "../../utils/jwt.util.js";
+import { clearWebSessionCookies } from "../../utils/orgAdminSession.util.js";
 import type { AuthRequest } from "../../types/models.js";
 
 // ---------------------------------------------------------------------------
@@ -240,9 +241,9 @@ export const adminLogout = async (req: Request, res: Response) => {
     const isProd        = process.env.NODE_ENV === "production";
     const cookieOptions = { httpOnly: true, secure: isProd, sameSite: "strict" as const, path: "/" };
 
-    res.clearCookie("access_token",    cookieOptions);
-    res.clearCookie("refresh_token",   { ...cookieOptions, path: "/auth/refresh" });
-    res.clearCookie("org_status",      { ...cookieOptions, httpOnly: false });
+    // Clears access_token, refresh_token (at its real /api/v1/auth path),
+    // org_status and admin_session.
+    clearWebSessionCookies(res);
     res.clearCookie("admin_temp_token", cookieOptions);
 
     return res.status(200).json({ message: "Logged out successfully" });

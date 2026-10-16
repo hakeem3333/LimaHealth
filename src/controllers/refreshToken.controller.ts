@@ -7,6 +7,11 @@ import {
   hashToken,
   REFRESH_GRACE_WINDOW_MS,
 } from "../utils/jwt.util";
+import {
+  ORG_ADMIN_REFRESH_JWT_EXPIRES_IN,
+  setOrgAdminSessionCookies,
+  clearWebSessionCookies,
+} from "../utils/orgAdminSession.util";
 
 export const handleRefreshToken = async (req: Request, res: Response) => {
   // Mobile clients send the token in the body; web clients use HttpOnly cookies
@@ -15,7 +20,14 @@ export const handleRefreshToken = async (req: Request, res: Response) => {
     ? req.body?.refreshToken
     : req.cookies.refresh_token;
 
+  // Web only: drop every session cookie (incl. the admin_session hint) on a
+  // dead session so the frontend middleware stops letting pages load for it.
+  const clearWebCookies = () => {
+    if (!isMobile) clearWebSessionCookies(res);
+  };
+
   if (!oldRefreshToken) {
+    clearWebCookies();
     return res.status(401).json({ message: "Refresh token missing" });
   }
 
@@ -52,11 +64,10 @@ export const handleRefreshToken = async (req: Request, res: Response) => {
   // current or recently-superseded hash means it was rotated out long ago
   // (or never existed). Treat as theft: kill every session for this user.
   if (!savedToken) {
+    clearWebCookies();
     if (valid && decoded) {
       const userId = (decoded as any).sub;
       await prisma.refreshToken.deleteMany({ where: { userId } });
-      res.clearCookie("access_token");
-      res.clearCookie("refresh_token");
       return res.status(403).json({
         message: "Security alert: Session compromised. Please login again.",
       });
@@ -67,15 +78,31 @@ export const handleRefreshToken = async (req: Request, res: Response) => {
   // Token exists in DB but is expired, revoked, or the JWT itself expired
   if (!valid || savedToken.revoked || savedToken.expiresAt < new Date()) {
     await prisma.refreshToken.delete({ where: { id: savedToken.id } });
+    clearWebCookies();
     return res
       .status(403)
       .json({ message: "Session expired. Please login again." });
+  }
+
+  // A deactivated org admin, counselor or student loses any session they already had.
+  const DEACTIVATABLE_ROLES = ["ORG_ADMIN", "COUNSELOR", "STUDENT"];
+  if (
+    DEACTIVATABLE_ROLES.includes(savedToken.user.role?.name ?? "") &&
+    !savedToken.user.isActive
+  ) {
+    await prisma.refreshToken.deleteMany({ where: { userId: savedToken.userId } });
+    clearWebCookies();
+    return res.status(403).json({ message: "This account has been deactivated." });
   }
 
   const userId = savedToken.userId;
   const roleName = savedToken.user.role?.name ?? "";
   const orgStatus = savedToken.user.org?.status ?? undefined;
   const isProd = process.env.NODE_ENV === "production";
+  // Web org-admin sessions are 1 day (absolute, from login) and carry the
+  // admin_session hint cookie; mobile and other roles keep the 7-day default.
+  const isWebOrgAdmin = !isMobile && roleName === "ORG_ADMIN";
+  const sessionMs = savedToken.expiresAt.getTime() - Date.now();
 
   // Grace-window hit: reissue only a fresh access token. We don't have the
   // plaintext of the *current* refresh token (only its hash) to hand back,
@@ -96,6 +123,11 @@ export const handleRefreshToken = async (req: Request, res: Response) => {
       });
     }
 
+    if (isWebOrgAdmin) {
+      setOrgAdminSessionCookies(res, { accessToken: newAccessToken, orgStatus }, sessionMs);
+      return res.status(200).json({ message: "Access token refreshed" });
+    }
+
     res.cookie("access_token", newAccessToken, {
       httpOnly: true,
       secure: isProd,
@@ -114,7 +146,10 @@ export const handleRefreshToken = async (req: Request, res: Response) => {
     orgId: savedToken.user.orgId ?? undefined,
     orgStatus,
   });
-  const newRefreshToken = signRefreshToken({ sub: userId });
+  const newRefreshToken = signRefreshToken(
+    { sub: userId },
+    isWebOrgAdmin ? ORG_ADMIN_REFRESH_JWT_EXPIRES_IN : undefined,
+  );
 
   await prisma.refreshToken.update({
     where: { id: savedToken.id },
@@ -132,6 +167,15 @@ export const handleRefreshToken = async (req: Request, res: Response) => {
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
     });
+  }
+
+  if (isWebOrgAdmin) {
+    setOrgAdminSessionCookies(
+      res,
+      { accessToken: newAccessToken, refreshToken: newRefreshToken, orgStatus },
+      sessionMs,
+    );
+    return res.status(200).json({ message: "Tokens refreshed successfully" });
   }
 
   res.cookie("access_token", newAccessToken, {

@@ -1,5 +1,9 @@
 import prisma from "./prisma.service.js";
 import { sendEmail } from "./email.service.js";
+import { LOW_MOOD_VALUES } from "../utils/mood.util.js";
+import { scoreAndStore, type HealthScore } from "./healthScore.service.js";
+import { getOrgThresholds, type OrgThresholds } from "../utils/orgThresholds.util.js";
+import { getMemberLabel } from "../utils/orgType.util.js";
 
 // ---------------------------------------------------------------------------
 // Alert types
@@ -14,33 +18,40 @@ export interface AlertRule {
 }
 
 // ---------------------------------------------------------------------------
-// Biometric thresholds
+// Health score thresholds
 // ---------------------------------------------------------------------------
 
-const BIOMETRIC_RULES = {
+// Risk alerts are driven by the shared health score (ML stress probability
+// blended with mood — see healthScore.service.ts), the same score shown in the
+// student app. Heart-rate rules check the latest reading against the org's
+// "BPM Stress Trigger" (HIGH) and that + 20 bpm (CRITICAL).
+const HEALTH_SCORE_RULES = {
   STRESS_CRITICAL: {
-    test: (s: number) => s >= 80,
+    test: (s: HealthScore) => s.riskLevel === "CRITICAL",
     type: "STRESS_CRITICAL",
     severity: "CRITICAL" as AlertSeverity,
-    message: (name: string, score: number) =>
-      `${name}'s stress level reached ${score}/100 — immediate check-in recommended.`,
+    message: (name: string, s: HealthScore) =>
+      `${name}'s wellness risk score reached ${s.riskScore}/100 — immediate check-in recommended.`,
   },
   STRESS_HIGH: {
-    test: (s: number) => s >= 65,
+    test: (s: HealthScore) => s.riskLevel === "HIGH",
     type: "STRESS_HIGH",
     severity: "HIGH" as AlertSeverity,
-    message: (name: string, score: number) =>
-      `${name}'s stress level is elevated at ${score}/100.`,
+    message: (name: string, s: HealthScore) =>
+      `${name}'s wellness risk score is elevated at ${s.riskScore}/100.`,
   },
+};
+
+const HEART_RATE_RULES = {
   HEART_RATE_CRITICAL: {
-    test: (hr: number) => hr >= 120,
+    test: (hr: number, t: OrgThresholds) => hr >= t.heartRateCritical,
     type: "HEART_RATE_CRITICAL",
     severity: "CRITICAL" as AlertSeverity,
     message: (name: string, hr: number) =>
       `${name}'s heart rate is critically high at ${hr} bpm.`,
   },
   HEART_RATE_HIGH: {
-    test: (hr: number) => hr >= 100,
+    test: (hr: number, t: OrgThresholds) => hr >= t.heartRateHigh,
     type: "HEART_RATE_HIGH",
     severity: "HIGH" as AlertSeverity,
     message: (name: string, hr: number) =>
@@ -52,17 +63,24 @@ const BIOMETRIC_RULES = {
 // Mood thresholds
 // ---------------------------------------------------------------------------
 
-const LOW_MOOD_VALUES = new Set(["LOW", "DOWN", "AWFUL"]);
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Find the organisation's first active counselor.
+ * The counselor an alert about this student goes to: their assigned counselor
+ * (if still active in the same org), else the org's first active counselor so
+ * unassigned students aren't silently dropped.
  * If no counselor exists the alert cannot be created — return null.
  */
-async function findCounselor(orgId: string): Promise<string | null> {
+async function findCounselor(studentId: string, orgId: string): Promise<string | null> {
+  const student = await prisma.user.findUnique({
+    where: { id: studentId },
+    select: { assignedCounselor: { select: { id: true, orgId: true, isActive: true } } },
+  });
+  const assigned = student?.assignedCounselor;
+  if (assigned && assigned.orgId === orgId && assigned.isActive) return assigned.id;
+
   const counselor = await prisma.user.findFirst({
     where: {
       orgId,
@@ -99,6 +117,7 @@ async function isDuplicate(
  * Create the alert record and email the counselor.
  */
 async function fireAlert(
+  orgId: string,
   studentId: string,
   counselorId: string,
   counselorEmail: string,
@@ -110,12 +129,16 @@ async function fireAlert(
     data: { studentId, counselorId, alertType, severity, message },
   });
 
+  // Word the email for the org ("Patient Wellness Alert" in a hospital, etc.)
+  const org = await prisma.organisation.findUnique({ where: { id: orgId }, select: { orgType: true } });
+  const memberLabel = getMemberLabel(org?.orgType ?? "");
+
   await sendEmail({
     to: counselorEmail,
     subject: `[LimaHealth Alert] ${alertType.replace(/_/g, " ")}`,
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#333">
-        <h2 style="color:#7C3AED">Student Wellness Alert</h2>
+        <h2 style="color:#7C3AED">${memberLabel} Wellness Alert</h2>
         <p>${message}</p>
         <p>Please log in to the LimaHealth dashboard to review and respond.</p>
         <p style="color:#6B7280;font-size:12px">— LimaHealth Automated Monitoring</p>
@@ -132,19 +155,21 @@ async function fireAlert(
 // ---------------------------------------------------------------------------
 
 /**
- * Evaluate biometric data against alert rules.
- * Called after every biometric log is saved.
+ * Evaluate a computed health score against alert rules.
+ * `heartRate` is the latest reading when available (catches spikes the
+ * windowed average would smooth out); otherwise the score's average is used.
  */
-export async function evaluateBiometricAlert(params: {
+export async function evaluateHealthScoreAlert(params: {
   studentId: string;
   orgId: string;
-  heartRate: number;
-  stressLevelScore: number;
   studentName: string;
+  score: HealthScore;
+  heartRate?: number | undefined;
 }): Promise<void> {
-  const { studentId, orgId, heartRate, stressLevelScore, studentName } = params;
+  const { studentId, orgId, studentName, score } = params;
+  const heartRate = Math.round(params.heartRate ?? score.heartRate);
 
-  const counselorId = await findCounselor(orgId);
+  const counselorId = await findCounselor(studentId, orgId);
   if (!counselorId) return; // no counselor to notify
 
   const counselor = await prisma.user.findUnique({
@@ -153,47 +178,69 @@ export async function evaluateBiometricAlert(params: {
   });
   if (!counselor) return;
 
+  // Heart-rate limits come from the org's "BPM Stress Trigger" setting
+  const thresholds = await getOrgThresholds(orgId);
+
   // Evaluate rules in priority order (most severe first)
   const checks = [
-    {
-      rule: BIOMETRIC_RULES.STRESS_CRITICAL,
-      value: stressLevelScore,
-      label: stressLevelScore,
-    },
-    {
-      rule: BIOMETRIC_RULES.HEART_RATE_CRITICAL,
-      value: heartRate,
-      label: heartRate,
-    },
-    {
-      rule: BIOMETRIC_RULES.STRESS_HIGH,
-      value: stressLevelScore,
-      label: stressLevelScore,
-    },
-    {
-      rule: BIOMETRIC_RULES.HEART_RATE_HIGH,
-      value: heartRate,
-      label: heartRate,
-    },
+    { rule: HEALTH_SCORE_RULES.STRESS_CRITICAL, hit: HEALTH_SCORE_RULES.STRESS_CRITICAL.test(score),
+      message: () => HEALTH_SCORE_RULES.STRESS_CRITICAL.message(studentName, score) },
+    { rule: HEART_RATE_RULES.HEART_RATE_CRITICAL, hit: HEART_RATE_RULES.HEART_RATE_CRITICAL.test(heartRate, thresholds),
+      message: () => HEART_RATE_RULES.HEART_RATE_CRITICAL.message(studentName, heartRate) },
+    { rule: HEALTH_SCORE_RULES.STRESS_HIGH, hit: HEALTH_SCORE_RULES.STRESS_HIGH.test(score),
+      message: () => HEALTH_SCORE_RULES.STRESS_HIGH.message(studentName, score) },
+    { rule: HEART_RATE_RULES.HEART_RATE_HIGH, hit: HEART_RATE_RULES.HEART_RATE_HIGH.test(heartRate, thresholds),
+      message: () => HEART_RATE_RULES.HEART_RATE_HIGH.message(studentName, heartRate) },
   ];
 
-  for (const { rule, value, label } of checks) {
-    if (rule.test(value)) {
+  for (const { rule, hit, message } of checks) {
+    if (hit) {
       const duplicate = await isDuplicate(studentId, rule.type);
       if (!duplicate) {
         await fireAlert(
+          orgId,
           studentId,
           counselorId,
           counselor.email,
           rule.type,
           rule.severity,
-          rule.message(studentName, label),
+          message(),
         );
         // Fire at most one biometric alert per evaluation
         return;
       }
     }
   }
+}
+
+/**
+ * Recompute and store the student's health score, then run the alert rules
+ * on it. Called after every biometric log (manual or Fitbit) and mood log.
+ */
+export async function scoreAndEvaluate(params: {
+  studentId: string;
+  heartRate?: number | undefined;
+}): Promise<HealthScore | null> {
+  const { studentId, heartRate } = params;
+
+  const student = await prisma.user.findUnique({
+    where: { id: studentId },
+    select: { orgId: true, firstName: true, lastName: true },
+  });
+  if (!student) return null;
+
+  const { score } = await scoreAndStore(studentId, { trigger: "auto", heartRate: heartRate ?? null });
+
+  if (student.orgId) {
+    await evaluateHealthScoreAlert({
+      studentId,
+      orgId: student.orgId,
+      studentName: `${student.firstName} ${student.lastName}`,
+      score,
+      heartRate,
+    });
+  }
+  return score;
 }
 
 /**
@@ -219,14 +266,16 @@ export async function evaluateMoodAlert(params: {
     select: { moodEmoji: true },
   });
 
-  const allLow = recentMoods.every((m) => LOW_MOOD_VALUES.has(m.moodEmoji));
+  // Critical only once there really are 3 logs — a student's first low mood is not a streak.
+  const allLow =
+    recentMoods.length === 3 && recentMoods.every((m) => LOW_MOOD_VALUES.has(m.moodEmoji));
   const alertType = allLow ? "MOOD_CRITICAL" : "MOOD_LOW";
   const windowMinutes = allLow ? 120 : 60;
 
   const duplicate = await isDuplicate(studentId, alertType, windowMinutes);
   if (duplicate) return;
 
-  const counselorId = await findCounselor(orgId);
+  const counselorId = await findCounselor(studentId, orgId);
   if (!counselorId) return;
 
   const counselor = await prisma.user.findUnique({
@@ -240,5 +289,5 @@ export async function evaluateMoodAlert(params: {
     ? `${studentName} has logged negative mood (${mood}) 3 times in a row — wellbeing check recommended.`
     : `${studentName} logged a low mood: ${mood}.`;
 
-  await fireAlert(studentId, counselorId, counselor.email, alertType, severity, message);
+  await fireAlert(orgId, studentId, counselorId, counselor.email, alertType, severity, message);
 }

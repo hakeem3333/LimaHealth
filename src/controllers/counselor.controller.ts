@@ -2,6 +2,7 @@ import type { Response } from "express";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import prisma from "../services/prisma.service.js";
 import { z } from "zod";
+import { moodScore } from "../utils/mood.util.js";
 
 // ---------------------------------------------------------------------------
 // GET /counselor/dashboard
@@ -304,8 +305,6 @@ export const getRecentNotes = async (req: AuthRequest, res: Response) => {
   }
 };
 
-const MOOD_SCORE: Record<string, number> = { AWFUL: 1, LOW: 2, OKAY: 3, GOOD: 4, GREAT: 5 };
-
 function average(nums: number[]): number | null {
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
 }
@@ -344,10 +343,10 @@ export const getStudentInsights = async (req: AuthRequest, res: Response) => {
     ]);
 
     const avgMoodRecent = average(
-      moodLogs.filter((m) => m.timestamp >= sevenDaysAgo).map((m) => MOOD_SCORE[m.moodEmoji] ?? 3),
+      moodLogs.filter((m) => m.timestamp >= sevenDaysAgo).map((m) => moodScore(m.moodEmoji)),
     );
     const avgMoodPrior = average(
-      moodLogs.filter((m) => m.timestamp < sevenDaysAgo).map((m) => MOOD_SCORE[m.moodEmoji] ?? 3),
+      moodLogs.filter((m) => m.timestamp < sevenDaysAgo).map((m) => moodScore(m.moodEmoji)),
     );
     const avgStressRecent = average(
       biometricLogs.filter((b) => b.timestamp >= sevenDaysAgo).map((b) => b.stressLevelScore),

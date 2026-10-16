@@ -1,0 +1,20 @@
+model CounselorChangeRequest {
+  id                 String    @id @default(uuid())
+  studentId          String
+  currentCounselorId String?   // snapshot of who they were assigned to when they asked
+  reason             String
+  status             String    @default("PENDING") // PENDING | APPROVED | DENIED
+  newCounselorId     String?   // set once an APPROVED request has been actioned
+  adminNote          String?
+  resolvedById       String?
+  resolvedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  student            User      @relation("CounselorChangeRequestsAsStudent", fields: [studentId], references: [id])
+  currentCounselor   User?     @relation("CounselorChangeRequestsAsCurrentCounselor", fields: [currentCounselorId], references: [id])
+  newCounselor       User?     @relation("CounselorChangeRequestsAsNewCounselor", fields: [newCounselorId], references: [id])
+  resolvedBy         User?     @relation("CounselorChangeRequestsResolvedBy", fields: [resolvedById], references: [id])
+
+  @@index([studentId])
+  @@index([status])
+}

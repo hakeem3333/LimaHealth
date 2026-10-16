@@ -1,9 +1,10 @@
 import type { Request, Response } from "express";
 import prisma from "../services/prisma.service";
 import { z } from "zod";
-import { evaluateMoodAlert } from "../services/alertEngine.service";
+import { evaluateMoodAlert, scoreAndEvaluate } from "../services/alertEngine.service";
+import { MOOD_VALUES } from "../utils/mood.util.js";
 
-const MoodEnum = z.enum(["AWFUL", "DOWN", "OKAY", "GOOD", "GREAT"]);
+const MoodEnum = z.enum(MOOD_VALUES);
 
 const createMoodSchema = z.object({
   mood: MoodEnum,
@@ -61,6 +62,14 @@ export const createMoodLog = async (req: Request, res: Response) => {
         console.error("[AlertEngine] Mood evaluation error:", err.message)
       );
     }
+
+    // Mood feeds the blended health score — re-score if there are vitals to score
+    prisma.biometricLog
+      .count({ where: { userId } })
+      .then((vitals) => (vitals ? scoreAndEvaluate({ studentId: userId }) : null))
+      .catch((err) =>
+        console.error("[AlertEngine] Health score evaluation error:", err.message)
+      );
 
     return res.status(201).json({ message: "Mood logged successfully", data: moodLog });
   } catch (error) {

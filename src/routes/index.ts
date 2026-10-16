@@ -8,6 +8,7 @@ import biometricLogRoutes from "./biometricLog.routes.js";
 import moodLogRoutes from "./moodLog.routes.js";
 import alertRoutes from "./alert.routes.js";
 import parentStudentRelationshipRoutes from "./parentStudentRelationship.routes.js";
+import parentConsentRoutes from "./parentConsent.routes.js";
 import consentRoutes from "./consent.routes.js";
 import fitbitRoutes from "./fitbit.routes.js";
 import counselorRoutes from "./counselor.routes.js";
@@ -26,6 +27,7 @@ import superAdminRoutes from "./super-admin/superAdmin.routes.js";
 import aiRoutes from "./ai.routes.js";
 import appointmentRoutes from "./appointment.routes.js";
 import messageRoutes from "./message.routes.js";
+import counselorChangeRequestRoutes from "./counselorChangeRequest.routes.js";
 
 const router = Router();
 
@@ -58,6 +60,7 @@ router.use("/biometric-logs", biometricLogRoutes);
 router.use("/mood-logs", moodLogRoutes);
 router.use("/alerts", alertRoutes);
 router.use("/parent-relationships", parentStudentRelationshipRoutes);
+router.use("/parent-consent", parentConsentRoutes);
 router.use("/consents", consentRoutes);
 router.use("/fitbit", fitbitRoutes);
 router.use("/admin/setup", adminSetupRoutes);
@@ -65,5 +68,6 @@ router.use("/billing", billingRoutes);
 router.use("/ai", aiRoutes);
 router.use("/appointments", appointmentRoutes);
 router.use("/messages", messageRoutes);
+router.use("/counselor-requests", counselorChangeRequestRoutes);
 
 export default router;

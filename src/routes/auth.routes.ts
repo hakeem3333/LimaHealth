@@ -1,34 +1,40 @@
 import { Router } from "express";
 import { schoolSignup, verifyEmail, adminLogout, getMe } from "../controllers/admin/auth.controller.js";
 import { handleRefreshToken } from "../controllers/refreshToken.controller.js";
-import { adminLoginStep1, getOrgTypeByEmail } from "../controllers/admin/loginAdmin.controller.js";
+import { adminLoginStep1, adminResendOtp, getOrgTypeByEmail } from "../controllers/admin/loginAdmin.controller.js";
 import { adminLoginStep2 } from "../controllers/admin/verifyAdminOtp.controller.js";
 import { authenticate, authorizeRole } from "../middleware/auth.middleware.js";
 import { uploadFile, bulkUploadUsers, getFailedCSV, downloadEnrollmentTemplate } from "../controllers/admin/bulkUpload.controller.js";
 import { login, loginSchema } from "../controllers/user/auth/login.controller.js";
 import { changePassword } from "../controllers/user/auth/changePassword.controller.js";
+import { requestParentLoginOtp, verifyParentLoginOtp } from "../controllers/user/auth/parentOtpLogin.controller.js";
 import validate from "../middleware/validate.middleware.js";
-import { authLimiter, otpLimiter } from "../middleware/rateLimit.middleware.js";
+import { limiters } from "../middleware/rateLimit.middleware.js";
 import { forgotPassword, resetPassword } from "../controllers/passwordReset.controller.js";
 
 const router = Router();
 
-// User login (students, counselors, parents)
-router.post("/login", authLimiter, validate(loginSchema), login);
+// User login (students, counselors)
+router.post("/login", limiters.userLogin, validate(loginSchema), login);
+
+// Parent login — passwordless, email one-time code
+router.post("/parent/login",        limiters.parentCode, requestParentLoginOtp);
+router.post("/parent/login/verify", limiters.parentOtp, verifyParentLoginOtp);
 
 // School admin signup & email verification
-router.post("/admin/signup",       authLimiter, schoolSignup);
+router.post("/admin/signup",       limiters.signup, schoolSignup);
 router.get("/admin/verify-email",               verifyEmail);
 
 // School admin 2FA login
-router.post("/admin/login",       authLimiter, adminLoginStep1);
-router.post("/admin/verify-otp",  otpLimiter,  adminLoginStep2);
+router.post("/admin/login",       limiters.adminLogin, adminLoginStep1);
+router.post("/admin/verify-otp",  limiters.adminOtp, adminLoginStep2);
+router.post("/admin/resend-otp",  limiters.adminResend, adminResendOtp);
 
 // Org type lookup for login-page theming (rate-limited — reveals org type only, not account existence)
-router.get("/admin/org-type",     authLimiter, getOrgTypeByEmail);
+router.get("/admin/org-type",     limiters.orgLookup, getOrgTypeByEmail);
 
 // Password reset (public — no auth required)
-router.post("/forgot-password",   authLimiter, forgotPassword);
+router.post("/forgot-password",   limiters.forgotPassword, forgotPassword);
 router.post("/reset-password",                 resetPassword);
 
 // Session management
@@ -41,7 +47,7 @@ router.get("/me", authenticate, authorizeRole("ORG_ADMIN"), getMe);
 router.post(
   "/change-password",
   authenticate,
-  authorizeRole("STUDENT", "COUNSELOR", "PARENT"),
+  authorizeRole("STUDENT", "COUNSELOR"),
   changePassword,
 );
 
