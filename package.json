@@ -8,8 +8,8 @@
     "dev": "tsx watch src/server.ts",
     "merge-schema": "tsx merge-schema.ts",
     "postmerge-schema": "npx prisma generate",
-    "build": "npm run merge-schema && tsc",
-    "start": "node dist/server.js",
+    "build": "npm run merge-schema",
+    "start": "tsx src/server.ts",
     "seed": "node prisma/seed.js"
   },
   "keywords": [],

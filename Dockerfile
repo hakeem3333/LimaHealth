@@ -1,25 +1,13 @@
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci
-
-COPY . .
-RUN npm run merge-schema
-RUN npm run build
-
-# ── Production image ──
 FROM node:20-alpine
 
 WORKDIR /app
 
+# Full install: the server runs through tsx (a devDependency) instead of compiled JS
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
-RUN npx prisma generate
+COPY . .
+RUN npm run build
 
 # Run migrations then start
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
