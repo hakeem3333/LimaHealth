@@ -5,6 +5,8 @@ export const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT),
   secure: Number(process.env.SMTP_PORT) === 465, // auto TLS
+  // Zoho (and most hosted SMTP) refuse plaintext on 587 — force STARTTLS there
+  requireTLS: Number(process.env.SMTP_PORT) === 587,
   auth: process.env.SMTP_USER
     ? {
         user: process.env.SMTP_USER,
@@ -13,12 +15,22 @@ export const transporter = nodemailer.createTransport({
     : undefined,
 });
 
+// When a ZeptoMail API key is set, mail goes over HTTPS instead of SMTP —
+// hosts like Render's free tier block outbound SMTP ports.
+const ZEPTOMAIL_API_KEY = process.env.ZEPTOMAIL_API_KEY?.trim();
+const ZEPTOMAIL_API_URL =
+  process.env.ZEPTOMAIL_API_URL || "https://cpaas.zoho.com/v1.1/email";
+
 // Optional but recommended
-transporter.verify().then(() => {
-  console.log("📨 Mail server ready");
-}).catch(err => {
-  console.error("❌ Mail server connection failed", err);
-});
+if (ZEPTOMAIL_API_KEY) {
+  console.log("📨 Mail via ZeptoMail API");
+} else {
+  transporter.verify().then(() => {
+    console.log("📨 Mail server ready");
+  }).catch(err => {
+    console.error("❌ Mail server connection failed", err);
+  });
+}
 
 const FRONTEND_BASE_URL =
   process.env.FRONTEND_BASE_URL || "http://localhost:3001";
@@ -40,10 +52,56 @@ interface MailOptions {
   replyTo?: string;
 }
 
+// "LimaHealth <no-reply@x.com>" -> { name, address }
+const parseAddress = (value: string) => {
+  const match = value.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  return match
+    ? { address: (match[2] ?? "").trim(), name: (match[1] ?? "").trim() || undefined }
+    : { address: value.trim() };
+};
+
+const sendViaZeptoMailApi = async (options: MailOptions) => {
+  const from = process.env.EMAIL_FROM;
+  if (!from) throw new Error("EMAIL_FROM is required for ZeptoMail API");
+
+  const res = await fetch(ZEPTOMAIL_API_URL, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      // The key copied from ZeptoMail already carries the "Zoho-enczapikey" prefix
+      Authorization: ZEPTOMAIL_API_KEY!.startsWith("Zoho-enczapikey")
+        ? ZEPTOMAIL_API_KEY!
+        : `Zoho-enczapikey ${ZEPTOMAIL_API_KEY}`,
+    },
+    body: JSON.stringify({
+      from: parseAddress(from),
+      to: [{ email_address: parseAddress(options.to) }],
+      reply_to: options.replyTo ? [parseAddress(options.replyTo)] : undefined,
+      subject: options.subject,
+      htmlbody: options.html,
+      textbody: options.text,
+    }),
+  });
+
+  const body: any = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`ZeptoMail API ${res.status}: ${JSON.stringify(body.error ?? body)}`);
+  }
+  return { messageId: body.request_id as string | undefined };
+};
+
 export const sendEmail = async (options: MailOptions) => {
   try {
+    if (ZEPTOMAIL_API_KEY) {
+      const info = await sendViaZeptoMailApi(options);
+      console.log("📩 Email sent:", info.messageId);
+      return info;
+    }
+
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
+      // Zoho rejects a From that isn't the authenticated mailbox or one of its aliases
+      from: process.env.EMAIL_FROM || process.env.SMTP_USER,
       ...options,
     });
 
