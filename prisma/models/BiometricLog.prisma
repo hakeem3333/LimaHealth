@@ -3,8 +3,9 @@ model BiometricLog {
   userId            String
   timestamp         DateTime  @default(now())
   heartRate         Float
-  skinTemp          Float
-  gsr               Float
+  hrv               Float?    // nightly HRV (RMSSD, ms); null = not measured
+  skinTemp          Float     // 0 = not measured
+  gsr               Float     // 0 = not measured
   movement          Float
   stressLevelScore  Float
   steps             Float     @default(0)

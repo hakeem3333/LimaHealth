@@ -28,7 +28,7 @@ const SCOPE_PREFIX = "https://www.googleapis.com/auth/googlehealth.";
 // callback checks that every one of these was actually granted.
 export const REQUIRED_SCOPES = [
   "activity_and_fitness.readonly",          // steps, calories
-  "health_metrics_and_measurements.readonly", // resting heart rate
+  "health_metrics_and_measurements.readonly", // resting heart rate, HRV
   "sleep.readonly",
   "settings.readonly",                      // time zone
 ].map((s) => SCOPE_PREFIX + s);
@@ -36,7 +36,7 @@ export const REQUIRED_SCOPES = [
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:8081";
 
 // Background sync cadence, and the minimum gap between two syncs for the same
-// user. Each sync costs 4 API requests (plus one settings call per process).
+// user. Each sync costs 5 API requests (plus one settings call per process).
 const SYNC_INTERVAL_MS = Number(process.env.FITBIT_SYNC_INTERVAL_MINUTES || 30) * 60_000;
 const MIN_SYNC_GAP_MS = 15 * 60_000;       // scheduler / normal app open
 const MIN_FORCED_SYNC_GAP_MS = 60_000;     // pull-to-refresh
@@ -263,38 +263,53 @@ export type DailyBiometrics = {
   steps: number;
   calories: number;
   restingHeartRate: number;
+  hrv: number | null; // last night's average RMSSD (ms), null if not measured
   sleepMinutes: number;
 };
 
+// Daily records may lag a day (resting HR and HRV are computed after the
+// night's sleep), so callers ask for yesterday onwards and take the newest.
+const newestDaily = <T extends { date?: any }>(records: (T | undefined)[]) =>
+  records
+    .filter((r): r is T => Boolean(r))
+    .sort((a, b) => ymdOf(b.date).localeCompare(ymdOf(a.date)))[0];
+
 /**
- * Concurrently fetches today's steps, calories, resting heart rate and sleep.
+ * Concurrently fetches today's steps, calories, resting heart rate, HRV and sleep.
  */
 export const getAllDailyBiometrics = async (accessToken: string, cacheKey: string): Promise<DailyBiometrics> => {
   const today = await getUserToday(accessToken, cacheKey);
   const tomorrow = shiftYmd(today, 1);
 
-  const [steps, calories, resting, sleep] = await Promise.all([
+  const [steps, calories, resting, hrv, sleep] = await Promise.all([
     dailyRollUp(accessToken, "steps", today),
     dailyRollUp(accessToken, "total-calories", today),
-    // Resting HR is computed after the night's sleep, so today's may not exist
-    // yet — take the newest of yesterday/today.
+    // Resting HR and HRV are computed after the night's sleep, so today's may
+    // not exist yet — take the newest of yesterday/today.
     listDataPoints(accessToken, "daily-resting-heart-rate",
       `daily_resting_heart_rate.date >= "${shiftYmd(today, -1)}"`),
+    // HRV is optional for scoring, so a failure here mustn't sink the sync.
+    listDataPoints(accessToken, "daily-heart-rate-variability",
+      `daily_heart_rate_variability.date >= "${shiftYmd(today, -1)}"`)
+      .catch((err) => {
+        if (err instanceof FitbitAuthError) throw err;
+        console.warn("[Fitbit] HRV fetch failed:", err.message);
+        return [];
+      }),
     // Sleep that ended today (last night + any naps), in the user's civil time.
     listDataPoints(accessToken, "sleep",
       `sleep.interval.civil_end_time >= "${today}" AND sleep.interval.civil_end_time < "${tomorrow}"`),
   ]);
 
-  const latestResting = resting
-    .map((p) => p.dailyRestingHeartRate)
-    .filter(Boolean)
-    .sort((a, b) => ymdOf(b.date).localeCompare(ymdOf(a.date)))[0];
+  const latestResting = newestDaily(resting.map((p) => p.dailyRestingHeartRate));
+  const latestHrv = newestDaily(hrv.map((p) => p.dailyHeartRateVariability));
 
   return {
     // int64 fields arrive as strings
     steps: Number(steps?.steps?.countSum) || 0,
     calories: Math.round(Number(calories?.totalCalories?.kcalSum) || 0),
     restingHeartRate: Number(latestResting?.beatsPerMinute) || 0,
+    hrv: Number(latestHrv?.averageHeartRateVariabilityMilliseconds) || null,
     sleepMinutes: sleep.reduce((sum, p) => sum + (Number(p.sleep?.summary?.minutesAsleep) || 0), 0),
   };
 };
@@ -311,17 +326,18 @@ const estimateStressScore = (restingHeartRate: number) =>
  * Saves processed biometric data to Prisma and runs the alert engine on it.
  */
 export const saveBiometricData = async (userId: string, data: DailyBiometrics) => {
-  const { steps, calories, restingHeartRate: heartRate, sleepMinutes } = data;
+  const { steps, calories, restingHeartRate: heartRate, hrv, sleepMinutes } = data;
   const stressLevelScore = estimateStressScore(heartRate);
 
   const biometricLog = await prisma.biometricLog.create({
     data: {
       userId,
       heartRate,
+      hrv,
       steps,
       calories,
       sleepHours: Math.round((sleepMinutes / 60) * 10) / 10,
-      skinTemp: 0, // not requested from the API
+      skinTemp: 0, // not measured: Fitbit exposes no continuous wrist temperature or EDA
       gsr: 0,
       movement: steps / 100, // crude movement proxy
       stressLevelScore,
